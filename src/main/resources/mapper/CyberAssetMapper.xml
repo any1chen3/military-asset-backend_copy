@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MyBatis Mapper XML文件
+  作用：定义SQL语句，实现与数据库的交互
+  约束文件：mybatis-3-mapper.dtd，规定了XML的语法规则
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  mapper标签：根标签
+  namespace属性：必须与Mapper接口的全限定名完全一致
+  作用：建立XML与Mapper接口的绑定关系
+-->
+<mapper namespace="com.military.asset.mapper.CyberAssetMapper">
+
+    <!--
+      select标签：查询操作
+      id属性：必须与Mapper接口中的方法名一致
+      resultType：查询结果类型（此处为String，对应数据库id字段）
+      功能：查询所有已存在的网信资产ID，用于Excel导入时的去重校验
+    -->
+    <select id="selectAllExistingIds" resultType="java.lang.String">
+        SELECT id FROM cyber_asset
+    </select>
+
+    <!--
+      insert标签：插入操作
+      id属性：与Mapper接口方法名一致
+      parameterType：参数类型（此处为List集合，用于批量插入）
+      useGeneratedKeys="false"：关闭自动生成主键（因id由业务生成，非数据库自增）
+      功能：批量插入网信资产数据，提高导入效率
+    -->
+    <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="false">
+        INSERT INTO cyber_asset (
+        id,                  -- 资产唯一标识（主键）
+        report_unit,         -- 上报单位
+        category_code,       -- 分类编码
+        asset_category,      -- 资产分类
+        asset_name,          -- 资产名称
+        asset_content,       -- 资产内容（网信资产特有字段）
+        actual_quantity,     -- 实有数量
+        unit,                -- 计量单位
+        put_into_use_date,   -- 投入使用日期
+        used_quantity,       -- 已用数量
+        inventory_unit,      -- 盘点单位
+        province,            -- 所在省份
+        city,                -- 所在城市
+        support_object,      -- 保障对象
+        unit_price,          -- 单价
+        amount,              -- 总金额
+        pricing_method,      -- 计价方法
+        pricing_description, -- 计价说明
+        inventory_remark,    -- 盘点备注
+        valuation_remark,    -- 核价备注
+        original_account_remark, -- 原始账备注
+        create_time          -- 记录创建时间
+        ) VALUES
+        <!--
+          foreach标签：循环遍历集合参数
+          collection="list"：集合参数名称（与接口方法参数一致）
+          item="item"：集合中每个元素的别名
+          separator=","：元素之间的分隔符（此处用于分隔多条VALUES语句）
+        -->
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.id},                  -- 取集合元素的id属性
+            #{item.reportUnit},          -- 取reportUnit属性（对应实体类字段）
+            #{item.categoryCode},        -- 取categoryCode属性
+            #{item.assetCategory},       -- 取assetCategory属性
+            #{item.assetName},           -- 取assetName属性
+            #{item.assetContent},        -- 取assetContent属性
+            #{item.actualQuantity},      -- 取actualQuantity属性
+            #{item.unit},                -- 取unit属性
+            #{item.putIntoUseDate},      -- 取putIntoUseDate属性（LocalDate类型）
+            #{item.usedQuantity},        -- 取usedQuantity属性
+            #{item.inventoryUnit},       -- 取inventoryUnit属性
+            #{item.province},            -- 取province属性
+            #{item.city},                -- 取city属性
+            #{item.supportObject},       -- 取supportObject属性
+            #{item.unitPrice},           -- 取unitPrice属性
+            #{item.amount},              -- 取amount属性
+            #{item.pricingMethod},       -- 取pricingMethod属性
+            #{item.pricingDescription},  -- 取pricingDescription属性
+            #{item.inventoryRemark},     -- 取inventoryRemark属性
+            #{item.valuationRemark},     -- 取valuationRemark属性
+            #{item.originalAccountRemark}, -- 取originalAccountRemark属性
+            NOW()                       -- 使用MySQL当前时间函数（数据库服务器时间）
+            )
+        </foreach>
+    </insert>
+
+    <!-- ====================== 网信基础资产联合查询SQL实现（支持数量范围查询） ====================== -->
+    <!--
+    XML转义符说明：
+      &gt;   = 大于号 >     (greater than)
+      &lt;   = 小于号 <     (less than)
+      &gt;=  = 大于等于 >=  (greater than or equal to)
+      &lt;=  = 小于等于 <=  (less than or equal to)
+      &amp;  = 和号 &      (ampersand)
+
+    注意：在XML中直接使用 < 和 > 会导致解析错误，必须使用转义符
+    -->
+    <select id="combinedQuery" resultType="com.military.asset.entity.CyberAsset">
+        SELECT * FROM cyber_asset
+        <where>
+            <!-- 上报单位筛选条件 -->
+            <if test="reportUnit != null and reportUnit != ''">
+                AND report_unit = #{reportUnit}
+            </if>
+
+            <!-- 省份筛选条件 -->
+            <if test="province != null and province != ''">
+                AND province = #{province}
+            </if>
+
+            <!-- 城市筛选条件 -->
+            <if test="city != null and city != ''">
+                AND city = #{city}
+            </if>
+
+            <!-- 分类编码筛选条件 -->
+            <if test="categoryCode != null and categoryCode != ''">
+                AND category_code = #{categoryCode}
+            </if>
+
+            <!-- 资产分类筛选条件 -->
+            <if test="assetCategory != null and assetCategory != ''">
+                AND asset_category = #{assetCategory}
+            </if>
+
+            <!-- 实有数量范围筛选条件 -->
+            <!-- 同时提供了最小值和最大值 -->
+            <if test="quantityMin != null and quantityMax != null">
+                AND actual_quantity BETWEEN #{quantityMin} AND #{quantityMax}
+            </if>
+            <!-- 只提供了最小值 -->
+            <if test="quantityMin != null and quantityMax == null">
+                AND actual_quantity &gt;= #{quantityMin}
+            </if>
+            <!-- 只提供了最大值 -->
+            <if test="quantityMin == null and quantityMax != null">
+                AND actual_quantity &lt;= #{quantityMax}
+            </if>
+
+            <!-- 已用数量范围筛选条件 -->
+            <!-- 同时提供了最小值和最大值 -->
+            <if test="usedQuantityMin != null and usedQuantityMax != null">
+                AND used_quantity BETWEEN #{usedQuantityMin} AND #{usedQuantityMax}
+            </if>
+            <!-- 只提供了最小值 -->
+            <if test="usedQuantityMin != null and usedQuantityMax == null">
+                AND used_quantity &gt;= #{usedQuantityMin}
+            </if>
+            <!-- 只提供了最大值 -->
+            <if test="usedQuantityMin == null and usedQuantityMax != null">
+                AND used_quantity &lt;= #{usedQuantityMax}
+            </if>
+
+            <!-- 投入使用时间范围筛选条件 -->
+            <if test="startUseDateStart != null and startUseDateStart != ''">
+                AND put_into_use_date &gt;= #{startUseDateStart}
+            </if>
+            <if test="startUseDateEnd != null and startUseDateEnd != ''">
+                AND put_into_use_date &lt;= #{startUseDateEnd}
+            </if>
+
+            <!-- 盘点单位筛选条件 -->
+            <if test="inventoryUnit != null and inventoryUnit != ''">
+                AND inventory_unit = #{inventoryUnit}
+            </if>
+        </where>
+        ORDER BY create_time DESC
+    </select>
+
+    <!--
+    接口2
+    网信资产按分类查询
+    -->
+    <select id="queryByCategory" resultType="com.military.asset.entity.CyberAsset">
+        SELECT * FROM cyber_asset
+        WHERE 1=1
+        <if test="categoryCode != null and categoryCode != ''">
+            AND category_code = #{categoryCode}
+        </if>
+        <if test="assetCategory != null and assetCategory != ''">
+            AND asset_category = #{assetCategory}
+        </if>
+        ORDER BY id
+    </select>
+
+    <!--
+    接口3
+    网信资产按上报单位查询
+    根据report_unit字段精确匹配查询
+    按id排序确保结果一致性
+    -->
+    <select id="queryByReportUnit" resultType="com.military.asset.entity.CyberAsset">
+        SELECT * FROM cyber_asset
+        WHERE report_unit = #{reportUnit}
+        ORDER BY id
+    </select>
+
+    <!--
+       接口4(a)：统计网信资产表各省份单位数量（新逻辑：关联report_unit表）
+
+       新逻辑说明：
+       - 虽然cyber_asset表有province列，但为了保持三个资产表的一致性
+       - 统一通过关联report_unit表获取省份信息
+       - 避免直接使用资产表的province字段（可能为空或不准确）
+
+       查询步骤：
+       1. cyber_asset表与report_unit表通过report_unit字段关联
+       2. 从report_unit表获取province信息
+       3. 按省份分组统计不同上报单位的数量
+       4. 排除省份为NULL或空字符串的记录
+       5. 按单位数量降序排列
+
+       优势：
+       - 统一了三个资产表的省份数据来源
+       - 确保省份信息的准确性和一致性
+       - 避免使用可能为空或不准确的资产表province字段
+   -->
+    <select id="selectProvinceUnitStats" resultType="java.util.HashMap">
+        SELECT
+        ru.province,
+        COUNT(DISTINCT ca.report_unit) as count
+        FROM cyber_asset ca
+        INNER JOIN report_unit ru ON ca.report_unit = ru.report_unit
+        WHERE ru.province IS NOT NULL AND ru.province != ''
+        GROUP BY ru.province
+        ORDER BY count DESC
+    </select>
+
+    <!-- 重置上报单位表中网信资产状态 -->
+    <update id="resetCyberAssetStatus">
+        UPDATE report_unit
+        SET source_table_cyber_asset = 0
+    </update>
+
+    <!-- 查询指定上报单位的全部资产，用于使用率分析 -->
+    <select id="selectByReportUnit" resultType="com.military.asset.entity.CyberAsset">
+        SELECT *
+        FROM cyber_asset
+        WHERE report_unit = #{reportUnit}
+    </select>
+
+    <!-- 统计同省份各上报单位在不同资产分类下的实有/已用数量 -->
+    <select id="aggregateProvinceUsageByAssetCategory"
+            resultType="com.military.asset.entity.CyberAssetUsageAggregation">
+        SELECT
+            ca.report_unit AS reportUnit,
+            ca.asset_category AS assetCategory,
+            SUM(ca.used_quantity) AS usedQuantity,
+            SUM(ca.actual_quantity) AS actualQuantity
+        FROM cyber_asset ca
+                 INNER JOIN report_unit ru ON ca.report_unit = ru.report_unit
+        WHERE ru.province = #{province}
+        GROUP BY ca.report_unit, ca.asset_category
+    </select>
+
+</mapper>

@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- ReportUnitMapper.xml -->
+<mapper namespace="com.military.asset.mapper.ReportUnitMapper">
+    <select id="selectByProvinceNull" resultType="com.military.asset.entity.ReportUnit">
+        SELECT id, report_unit, province FROM report_unit WHERE province IS NULL or province = ''
+    </select>
+    <update id="updateProvince">
+        UPDATE report_unit SET province = #{province} WHERE id = #{id}
+    </update>
+
+    <!-- 1. 根据上报单位名称查询 -->
+    <select id="selectByReportUnitName" resultType="com.military.asset.entity.ReportUnit">
+        SELECT * FROM report_unit
+        WHERE report_unit = #{reportUnit}
+    </select>
+
+    <!-- 2. 统计软件资产表中该单位的数量 -->
+    <select id="countSoftwareAsset" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM software_asset
+        WHERE report_unit = #{reportUnit}
+    </select>
+
+    <!-- 3. 统计网信资产表中该单位的数量 -->
+    <select id="countCyberAsset" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM cyber_asset
+        WHERE report_unit = #{reportUnit}
+    </select>
+
+    <!-- 4. 统计数据内容资产表中该单位的数量 -->
+    <select id="countDataContentAsset" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+    </select>
+
+    <!-- 根据资产表类型获取上报单位列表 - 修正字段名 -->
+    <!-- 用于接口3 -->
+    <select id="selectReportUnitsByTableType" resultType="java.lang.String">
+        SELECT DISTINCT report_unit FROM report_unit
+        WHERE 1=1
+        <if test="tableType == 'software'">
+            AND source_table_software_asset = 1
+        </if>
+        <if test="tableType == 'cyber'">
+            AND source_table_cyber_asset = 1
+        </if>
+        <if test="tableType == 'data'">
+            AND source_table_data_content_asset = 1
+        </if>
+        ORDER BY report_unit
+    </select>
+
+    <!--
+        接口4(b)：统计上报单位表各省份单位数量（只统计有数据的单位）
+
+        新逻辑说明：
+        - 直接从report_unit表统计，不涉及关联查询
+        - 只统计在至少一个资产表中有数据的单位
+        - 通过source_table_xxx_asset字段判断单位是否有数据
+
+        查询步骤：
+        1. 从report_unit表直接查询
+        2. 使用WHERE条件筛选有数据的单位（source_table_xxx_asset至少有一个为1）
+        3. 按省份分组统计单位数量
+        4. 排除省份为NULL或空字符串的记录
+        5. 按单位数量降序排列
+
+        与接口4(a)的关系：
+        - 4(a)分别统计三个资产表的省份分布
+        - 4(b)统计各省份有数据的单位总数（去重）
+        - 4(b)的结果应该大致等于三个资产表统计数的去重合并
+
+        优势：
+        - 直接统计，性能更好
+        - 反映了各省份有数据的单位总数
+        - 避免了重复统计（一个单位在多个资产表有数据也只统计一次）
+    -->
+    <select id="selectProvinceUnitStats" resultType="java.util.HashMap">
+        SELECT
+            province,
+            COUNT(*) as count
+        FROM report_unit
+        WHERE province IS NOT NULL
+          AND province != ''
+          AND (source_table_software_asset = 1
+           OR source_table_cyber_asset = 1
+           OR source_table_data_content_asset = 1)
+        GROUP BY province
+        ORDER BY count DESC
+    </select>
+    <select id="selectAll" resultType="com.military.asset.entity.ReportUnit">
+        SELECT id, report_unit, province
+        FROM report_unit
+    </select>
+
+    <!--
+        清理三个状态都为0的上报单位记录
+    -->
+    <select id="selectAllZeroStatusUnits" resultType="com.military.asset.entity.ReportUnit">
+        SELECT * FROM report_unit
+        WHERE source_table_software_asset = 0
+        AND source_table_cyber_asset = 0
+        AND source_table_data_content_asset = 0
+    </select>
+    <select id="selectProvinceByReportUnit" resultType="java.lang.String">
+        SELECT province
+        FROM report_unit
+        WHERE report_unit = #{reportUnit}
+            LIMIT 1
+    </select>
+
+    <select id="selectReportUnitsByProvince" resultType="java.lang.String">
+        SELECT report_unit
+        FROM report_unit
+        WHERE province = #{province}
+    </select>
+</mapper>

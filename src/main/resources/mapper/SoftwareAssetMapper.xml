@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MyBatis XML约束：告诉IDEA此文件是MyBatis配置文件，按规范解析标签（如<select>、<insert>） -->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace：必须与Mapper接口的全路径一致，绑定接口与XML -->
+<!-- 若不一致，MyBatis无法找到SQL与方法的对应关系，调用时会报“方法未找到”错误 -->
+<mapper namespace="com.military.asset.mapper.SoftwareAssetMapper">
+
+    <!-- 实现selectAllExistingIds方法：查询所有已存在的ID ，感觉可删-->
+    <!-- id：必须与Mapper接口的方法名一致；resultType：SQL结果的类型（数据库id是VARCHAR，对应Java String） -->
+    <select id="selectAllExistingIds" resultType="java.lang.String">
+        SELECT id FROM software_asset
+        <!-- 无WHERE条件，查询表中所有ID -->
+    </select>
+
+    <!-- 实现insertBatch方法：批量插入软件资产 -->
+    <!-- id：与接口方法名一致；parameterType：参数类型（List<SoftwareAsset>，MyBatis支持直接传List） -->
+    <!-- useGeneratedKeys="false"：主键手动输入，无需数据库自动生成（与@TableId(type=INPUT)一致） -->
+    <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="false">
+        INSERT INTO software_asset (
+        id,                  -- 主键（对应实体id字段）
+        title,               -- 标题（对应title）
+        data_audit_opinion,   -- 数据审核意见（对应dataAuditOpinion，下划线转驼峰）
+        report_unit,         -- 上报单位（对应reportUnit）
+        category_code,       -- 分类编码（对应categoryCode）
+        asset_category,      -- 资产分类（对应assetCategory）
+        asset_name,          -- 资产名称（对应assetName）
+        acquisition_method,  -- 取得方式（对应acquisitionMethod）
+        deployment_scope,    -- 部署范围（对应deploymentScope）
+        service_status,      -- 服务状态（对应serviceStatus）
+        actual_quantity,     -- 实有数量（对应actualQuantity）
+        unit,                -- 计量单位（对应unit）
+        put_into_use_date,   -- 投入使用日期（对应putIntoUseDate，LocalDate自动匹配DATE类型）
+        inventory_unit,      -- 盘点单位（对应inventoryUnit）
+        function_brief,      -- 功能简述（对应functionBrief）
+        deployment_form,     -- 部署形式（对应deploymentForm）
+        bearing_network,     -- 承载网络（对应bearingNetwork）
+        software_copyright,  -- 软件著作权人（对应softwareCopyright）
+        unit_price,          -- 单价（对应unitPrice，Double匹配DECIMAL）
+        amount,              -- 金额（对应amount）
+        pricing_method,      -- 计价方法（对应pricingMethod）
+        pricing_description, -- 计价说明（对应pricingDescription）
+        inventory_remark,    -- 盘点备注（对应inventoryRemark）
+        valuation_remark,    -- 核价备注（对应valuationRemark）
+        original_account_remark, -- 原始帐备注（对应originalAccountRemark）
+        create_time          -- 入库时间（对应createTime，由数据库自动生成）
+        ) VALUES
+        <!-- foreach：循环List集合，批量生成VALUES子句 -->
+        <!-- collection="list"：参数是List，默认变量名“list”（与@Param("list")一致） -->
+        <!-- item="item"：循环中每个元素的别名（单个SoftwareAsset实体） -->
+        <!-- separator=","：每个VALUES之间用逗号分隔（如VALUES (1),(2),(3)） -->
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.id},                  -- 取实体的id字段（调用item.getId()）
+            #{item.title},               -- 取title
+            #{item.dataAuditOpinion},    -- 取dataAuditOpinion
+            #{item.reportUnit},          -- 取reportUnit
+            #{item.categoryCode},        -- 取categoryCode
+            #{item.assetCategory},       -- 取assetCategory
+            #{item.assetName},           -- 取assetName
+            #{item.acquisitionMethod},   -- 取acquisitionMethod
+            #{item.deploymentScope},     -- 取deploymentScope
+            #{item.serviceStatus},       -- 取serviceStatus
+            #{item.actualQuantity},      -- 取actualQuantity
+            #{item.unit},                 -- 取unit
+            #{item.putIntoUseDate},       -- 取putIntoUseDate
+            #{item.inventoryUnit},       -- 取inventoryUnit
+            #{item.functionBrief},       -- 取functionBrief
+            #{item.deploymentForm},      -- 取deploymentForm
+            #{item.bearingNetwork},      -- 取bearingNetwork
+            #{item.softwareCopyright},   -- 取softwareCopyright
+            #{item.unitPrice},           -- 取unitPrice
+            #{item.amount},              -- 取amount
+            #{item.pricingMethod},       -- 取pricingMethod
+            #{item.pricingDescription},  -- 取pricingDescription
+            #{item.inventoryRemark},     -- 取inventoryRemark
+            #{item.valuationRemark},     -- 取valuationRemark
+            #{item.originalAccountRemark}, -- 取originalAccountRemark
+            NOW()                       -- create_time：数据库当前时间（NOW()是MySQL函数）
+            )
+        </foreach>
+    </insert>
+
+    <!-- ====================== 修改：软件资产联合查询SQL实现（支持实有数量范围查询 + 盘点单位筛选） ====================== -->
+    <!--
+    XML转义符说明：
+      &gt;   = 大于号 >     (greater than)
+      &lt;   = 小于号 <     (less than)
+      &gt;=  = 大于等于 >=  (greater than or equal to)
+      &lt;=  = 小于等于 <=  (less than or equal to)
+      &amp;  = 和号 &      (ampersand)
+
+    注意：在XML中直接使用 < 和 > 会导致解析错误，必须使用转义符
+    -->
+    <select id="combinedQuery" resultType="com.military.asset.entity.SoftwareAsset">
+        SELECT * FROM software_asset
+        <where>
+            <!-- 上报单位筛选条件 -->
+            <if test="reportUnit != null and reportUnit != ''">
+                AND report_unit = #{reportUnit}
+            </if>
+
+            <!-- 分类编码筛选条件 -->
+            <if test="categoryCode != null and categoryCode != ''">
+                AND category_code = #{categoryCode}
+            </if>
+
+            <!-- 资产分类筛选条件 -->
+            <if test="assetCategory != null and assetCategory != ''">
+                AND asset_category = #{assetCategory}
+            </if>
+
+            <!-- 取得方式筛选条件 -->
+            <if test="acquisitionMethod != null and acquisitionMethod != ''">
+                AND acquisition_method = #{acquisitionMethod}
+            </if>
+
+            <!-- 部署范围筛选条件 -->
+            <if test="deploymentScope != null and deploymentScope != ''">
+                AND deployment_scope = #{deploymentScope}
+            </if>
+
+            <!-- 部署形式筛选条件 -->
+            <if test="deploymentForm != null and deploymentForm != ''">
+                AND deployment_form = #{deploymentForm}
+            </if>
+
+            <!-- 承载网络筛选条件 -->
+            <if test="bearingNetwork != null and bearingNetwork != ''">
+                AND bearing_network = #{bearingNetwork}
+            </if>
+
+            <!-- 实有数量范围筛选条件 -->
+            <!-- 同时提供了最小值和最大值 -->
+            <if test="quantityMin != null and quantityMax != null">
+                AND actual_quantity BETWEEN #{quantityMin} AND #{quantityMax}
+            </if>
+            <!-- 只提供了最小值 -->
+            <if test="quantityMin != null and quantityMax == null">
+                AND actual_quantity &gt;= #{quantityMin}
+            </if>
+            <!-- 只提供了最大值 -->
+            <if test="quantityMin == null and quantityMax != null">
+                AND actual_quantity &lt;= #{quantityMax}
+            </if>
+
+            <!-- 服务状态筛选条件 -->
+            <if test="serviceStatus != null and serviceStatus != ''">
+                AND service_status = #{serviceStatus}
+            </if>
+
+            <!-- 投入使用时间范围筛选条件 -->
+            <if test="startUseDateStart != null and startUseDateStart != ''">
+                AND put_into_use_date &gt;= #{startUseDateStart}
+            </if>
+            <if test="startUseDateEnd != null and startUseDateEnd != ''">
+                AND put_into_use_date &lt;= #{startUseDateEnd}
+            </if>
+
+            <!-- 盘点单位筛选条件 -->
+            <if test="inventoryUnit != null and inventoryUnit != ''">
+                AND inventory_unit = #{inventoryUnit}
+            </if>
+        </where>
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 实现selectAssetCategoryByCode方法：按分类编码查资产分类 -->
+    <!-- DISTINCT：去重，确保同一编码只返回一个分类（符合一一对应规则） -->
+    <select id="selectAssetCategoryByCode" resultType="java.lang.String">
+        SELECT DISTINCT asset_category
+        FROM software_asset
+        WHERE category_code = #{categoryCode}
+    </select>
+
+    <!-- 统计各上报单位的软件资产数量，用于取得方式与服务状态占比分析 -->
+    <select id="selectStatisticsByReportUnit" resultType="com.military.asset.vo.stat.SoftwareAssetStatisticRow">
+        SELECT
+            report_unit AS reportUnit,
+            SUM(COALESCE(actual_quantity, 0)) AS totalQuantity,
+            SUM(CASE WHEN acquisition_method = '购置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS purchaseQuantity,
+            SUM(CASE WHEN acquisition_method = '自主开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS selfDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '合作开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS coDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '其他' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS otherQuantity,
+            SUM(CASE WHEN service_status = '在用' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS inUseQuantity,
+            SUM(CASE WHEN service_status = '闲置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS idleQuantity,
+            SUM(CASE WHEN service_status = '报废' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS scrappedQuantity,
+            SUM(CASE WHEN service_status = '封闭' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS closedQuantity
+        FROM software_asset
+        GROUP BY report_unit
+        ORDER BY report_unit
+    </select>
+
+    <!--
+    接口2
+    软件资产按分类查询
+    -->
+    <select id="queryByCategory" resultType="com.military.asset.entity.SoftwareAsset">
+        SELECT * FROM software_asset
+        WHERE 1=1
+        <if test="categoryCode != null and categoryCode != ''">
+            AND category_code = #{categoryCode}
+        </if>
+        <if test="assetCategory != null and assetCategory != ''">
+            AND asset_category = #{assetCategory}
+        </if>
+        ORDER BY id
+    </select>
+
+    <!--
+    接口3
+    软件资产按上报单位查询
+    根据report_unit字段精确匹配查询
+    按id排序确保结果一致性
+    -->
+    <select id="queryByReportUnit" resultType="com.military.asset.entity.SoftwareAsset">
+        SELECT * FROM software_asset
+        WHERE report_unit = #{reportUnit}
+        ORDER BY id
+    </select>
+
+    <!--
+       接口4(a)：统计软件资产表各省份单位数量（新逻辑：关联report_unit表）
+
+       原逻辑问题：
+       - software_asset表没有province列，直接查询province字段会报错
+
+       新逻辑解决方案：
+       - 通过INNER JOIN关联report_unit表，使用report_unit字段作为关联条件
+       - 从report_unit.province字段获取省份信息，确保数据准确性
+       - 统一了三个资产表的省份信息来源，保证数据一致性
+
+       查询步骤：
+       1. software_asset表与report_unit表通过report_unit字段关联
+       2. 从report_unit表获取province信息
+       3. 按省份分组统计不同上报单位的数量
+       4. 排除省份为NULL或空字符串的记录
+       5. 按单位数量降序排列，便于前端展示
+
+       优势：
+       - 解决了software_asset表无province列的问题
+       - 统一了三个资产表的省份数据来源
+       - 确保省份信息的准确性和一致性
+   -->
+    <select id="selectProvinceUnitStats" resultType="java.util.HashMap">
+        SELECT
+        ru.province,
+        COUNT(DISTINCT sa.report_unit) as count
+        FROM software_asset sa
+        INNER JOIN report_unit ru ON sa.report_unit = ru.report_unit
+        WHERE ru.province IS NOT NULL AND ru.province != ''
+        GROUP BY ru.province
+        ORDER BY count DESC
+    </select>
+
+    <!-- 重置上报单位表中软件资产状态 -->
+    <update id="resetSoftwareAssetStatus">
+        UPDATE report_unit
+        SET source_table_software_asset = 0
+    </update>
+
+</mapper>

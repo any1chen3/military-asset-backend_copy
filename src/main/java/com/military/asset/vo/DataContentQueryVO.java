@@ -1,0 +1,28 @@
+package com.military.asset.vo;
+
+import lombok.Data;
+
+/**
+ * 数据资产查询参数VO
+ * 作用：接收前端传递的数据资产查询条件，支持分页和动态条件筛选
+ * 特点：所有字段都是可选的，前端可以根据需要传递任意组合的查询条件
+ * 使用场景：用于列表查询和导出功能的参数传递
+ */
+@Data
+public class DataContentQueryVO {
+    // 分页参数
+    private Integer pageNum;          // 当前页码（可选）
+    private Integer pageSize;         // 每页大小（可选）
+
+    // 查询条件字段
+    private String reportUnit;        // 上报单位（可选）
+    private String province;          // 省份（可选）
+    private String city;              // 城市（可选）
+    private String applicationField;  // 应用领域（可选）
+    private String developmentTool;   // 开发工具（可选）
+    private Integer quantityMin;      // 实有数量最小值（可选）
+    private Integer quantityMax;      // 实有数量最大值（可选）
+    private String updateCycle;       // 更新周期（可选）
+    private String updateMethod;      // 更新方式（可选）
+    private String inventoryUnit;     // 盘点单位（可选）
+}

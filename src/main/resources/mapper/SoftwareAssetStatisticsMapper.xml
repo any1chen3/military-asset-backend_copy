@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.military.asset.mapper.SoftwareAssetStatisticsMapper">
+
+    <select id="selectStatistics" resultType="com.military.asset.vo.stat.SoftwareAssetStatisticRow">
+        SELECT
+            report_unit AS reportUnit,
+            SUM(COALESCE(actual_quantity, 0)) AS totalQuantity,
+            SUM(CASE WHEN acquisition_method = '购置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS purchaseQuantity,
+            SUM(CASE WHEN acquisition_method = '自主开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS selfDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '合作开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS coDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '其他' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS otherQuantity,
+            SUM(CASE WHEN service_status = '在用' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS inUseQuantity,
+            SUM(CASE WHEN service_status = '闲置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS idleQuantity,
+            SUM(CASE WHEN service_status = '报废' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS scrappedQuantity,
+            SUM(CASE WHEN service_status = '封闭' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS closedQuantity
+        FROM software_asset
+        GROUP BY report_unit
+        ORDER BY report_unit
+    </select>
+
+    <select id="selectStatisticsByReportUnit" resultType="com.military.asset.vo.stat.SoftwareAssetStatisticRow">
+        SELECT
+            report_unit AS reportUnit,
+            SUM(COALESCE(actual_quantity, 0)) AS totalQuantity,
+            SUM(CASE WHEN acquisition_method = '购置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS purchaseQuantity,
+            SUM(CASE WHEN acquisition_method = '自主开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS selfDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '合作开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS coDevelopedQuantity,
+            SUM(CASE WHEN acquisition_method = '其他' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS otherQuantity,
+            SUM(CASE WHEN service_status = '在用' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS inUseQuantity,
+            SUM(CASE WHEN service_status = '闲置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS idleQuantity,
+            SUM(CASE WHEN service_status = '报废' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS scrappedQuantity,
+            SUM(CASE WHEN service_status = '封闭' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS closedQuantity
+        FROM software_asset
+        WHERE report_unit = #{reportUnit}
+        GROUP BY report_unit
+    </select>
+
+    <select id="selectStatisticsByReportUnits" resultType="com.military.asset.vo.stat.SoftwareAssetStatisticRow">
+        SELECT
+        report_unit AS reportUnit,
+        SUM(COALESCE(actual_quantity, 0)) AS totalQuantity,
+        SUM(CASE WHEN acquisition_method = '购置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS purchaseQuantity,
+        SUM(CASE WHEN acquisition_method = '自主开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS selfDevelopedQuantity,
+        SUM(CASE WHEN acquisition_method = '合作开发' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS coDevelopedQuantity,
+        SUM(CASE WHEN acquisition_method = '其他' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS otherQuantity,
+        SUM(CASE WHEN service_status = '在用' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS inUseQuantity,
+        SUM(CASE WHEN service_status = '闲置' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS idleQuantity,
+        SUM(CASE WHEN service_status = '报废' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS scrappedQuantity,
+        SUM(CASE WHEN service_status = '封闭' THEN COALESCE(actual_quantity, 0) ELSE 0 END) AS closedQuantity
+        FROM software_asset
+        WHERE report_unit IN
+        <foreach collection="reportUnits" item="unit" open="(" separator="," close=")">
+            #{unit}
+        </foreach>
+        GROUP BY report_unit
+    </select>
+
+    <select id="selectAllProvinceUsageDetails"
+            resultType="com.military.asset.vo.stat.SoftwareAssetProvinceUsageDetail">
+        SELECT
+            ru.province          AS province,
+            sa.service_status    AS serviceStatus,
+            sa.put_into_use_date AS putIntoUseDate,
+            sa.actual_quantity   AS actualQuantity
+        FROM software_asset sa
+                 LEFT JOIN report_unit ru ON sa.report_unit = ru.report_unit
+        ORDER BY ru.province, sa.service_status, sa.put_into_use_date
+    </select>
+</mapper>

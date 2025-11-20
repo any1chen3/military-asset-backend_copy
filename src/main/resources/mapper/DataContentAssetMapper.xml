@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace绑定数据内容资产Mapper接口 -->
+<mapper namespace="com.military.asset.mapper.DataContentAssetMapper">
+
+    <!-- 实现selectAllExistingIds方法 -->
+    <select id="selectAllExistingIds" resultType="java.lang.String">
+        SELECT id FROM data_content_asset
+    </select>
+
+    <!-- 实现insertBatch方法：批量插入数据内容资产 -->
+    <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="false">
+        INSERT INTO data_content_asset (
+        id,
+        report_unit,
+        category_code,
+        asset_category,
+        asset_name,
+        development_tool,  -- 开发工具（数据资产特有核心字段）
+        actual_quantity,
+        unit,
+        inventory_unit,
+        province,
+        city,
+        data_type,         -- 数据类型（数据资产特有字段）
+        acquisition_method,
+        function_brief,
+        application_field, -- 应用领域（数据资产特有字段）
+        update_cycle,      -- 更新周期（数据资产特有字段）
+        update_method,     -- 更新方式（数据资产特有字段）
+        unit_price,
+        amount,
+        pricing_method,
+        pricing_description,
+        create_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.id},
+            #{item.reportUnit},
+            #{item.categoryCode},
+            #{item.assetCategory},
+            #{item.assetName},
+            #{item.developmentTool},  -- 开发工具（必须非空）
+            #{item.actualQuantity},
+            #{item.unit},
+            #{item.inventoryUnit},
+            #{item.province},
+            #{item.city},
+            #{item.dataType},
+            #{item.acquisitionMethod},
+            #{item.functionBrief},
+            #{item.applicationField},
+            #{item.updateCycle},
+            #{item.updateMethod},
+            #{item.unitPrice},
+            #{item.amount},
+            #{item.pricingMethod},
+            #{item.pricingDescription},
+            NOW()
+            )
+        </foreach>
+    </insert>
+
+    <!-- ====================== 数据内容资产联合查询SQL实现 （支持实有数量范围查询 + 盘点单位筛选） ====================== -->
+    <!--
+    XML转义符说明：
+      &gt;   = 大于号 >     (greater than)
+      &lt;   = 小于号 <     (less than)
+      &gt;=  = 大于等于 >=  (greater than or equal to)
+      &lt;=  = 小于等于 <=  (less than or equal to)
+      &amp;  = 和号 &      (ampersand)
+
+    注意：在XML中直接使用 < 和 > 会导致解析错误，必须使用转义符
+    -->
+    <!-- 功能：支持多条件自由组合查询数据内容资产，返回分页结果 -->
+    <!-- 特点：使用动态SQL构建查询条件，所有条件均为可选 -->
+    <select id="combinedQuery" resultType="com.military.asset.entity.DataContentAsset">
+        SELECT * FROM data_content_asset
+        <where>
+            <!-- 上报单位筛选条件 -->
+            <if test="reportUnit != null and reportUnit != ''">
+                AND report_unit = #{reportUnit}
+            </if>
+
+            <!-- 省份筛选条件 -->
+            <if test="province != null and province != ''">
+                AND province = #{province}
+            </if>
+
+            <!-- 城市筛选条件 -->
+            <if test="city != null and city != ''">
+                AND city = #{city}
+            </if>
+
+            <!-- 应用领域筛选条件 -->
+            <if test="applicationField != null and applicationField != ''">
+                AND application_field = #{applicationField}
+            </if>
+
+            <!-- 开发工具筛选条件 -->
+            <if test="developmentTool != null and developmentTool != ''">
+                AND development_tool = #{developmentTool}
+            </if>
+
+            <!-- 实有数量范围筛选条件 -->
+            <!-- 同时提供了最小值和最大值 -->
+            <if test="quantityMin != null and quantityMax != null">
+                AND actual_quantity BETWEEN #{quantityMin} AND #{quantityMax}
+            </if>
+            <!-- 只提供了最小值 -->
+            <if test="quantityMin != null and quantityMax == null">
+                AND actual_quantity &gt;= #{quantityMin}
+            </if>
+            <!-- 只提供了最大值 -->
+            <if test="quantityMin == null and quantityMax != null">
+                AND actual_quantity &lt;= #{quantityMax}
+            </if>
+
+            <!-- 更新周期筛选条件 -->
+            <if test="updateCycle != null and updateCycle != ''">
+                AND update_cycle = #{updateCycle}
+            </if>
+
+            <!-- 更新方式筛选条件 -->
+            <if test="updateMethod != null and updateMethod != ''">
+                AND update_method = #{updateMethod}
+            </if>
+
+            <!-- 盘点单位筛选条件 -->
+            <if test="inventoryUnit != null and inventoryUnit != ''">
+                AND inventory_unit = #{inventoryUnit}
+            </if>
+        </where>
+        ORDER BY create_time DESC
+    </select>
+
+    <!--
+    接口2
+    数据内容资产按应用领域查询
+    -->
+    <!-- 修改SQL，支持可选参数 -->
+    <select id="queryByApplicationField" resultType="com.military.asset.entity.DataContentAsset">
+        SELECT * FROM data_content_asset
+        WHERE 1=1
+        <if test="applicationField != null and applicationField != ''">
+            AND application_field = #{applicationField}
+        </if>
+        ORDER BY id
+    </select>
+
+    <!--
+    接口3
+    数据内容资产按上报单位查询
+    根据report_unit字段精确匹配查询
+    按id排序确保结果一致性
+    -->
+    <select id="queryByReportUnit" resultType="com.military.asset.entity.DataContentAsset">
+        SELECT * FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+        ORDER BY id
+    </select>
+
+    <!--
+        接口4(a)：统计数据内容资产表各省份单位数量（新逻辑：关联report_unit表）
+
+        新逻辑说明：
+        - 虽然data_content_asset表有province列，但为了保持三个资产表的一致性
+        - 统一通过关联report_unit表获取省份信息
+        - 确保所有资产表的省份数据都来自同一个权威来源
+
+        查询步骤：
+        1. data_content_asset表与report_unit表通过report_unit字段关联
+        2. 从report_unit表获取province信息
+        3. 按省份分组统计不同上报单位的数量
+        4. 排除省份为NULL或空字符串的记录
+        5. 按单位数量降序排列
+
+        优势：
+        - 统一了三个资产表的省份数据来源
+        - 确保数据一致性，避免因数据录入错误导致统计偏差
+        - report_unit表的province字段经过专门维护，更加准确
+    -->
+    <select id="selectProvinceUnitStats" resultType="java.util.HashMap">
+        SELECT
+        ru.province,
+        COUNT(DISTINCT dca.report_unit) as count
+        FROM data_content_asset dca
+        INNER JOIN report_unit ru ON dca.report_unit = ru.report_unit
+        WHERE ru.province IS NOT NULL AND ru.province != ''
+        GROUP BY ru.province
+        ORDER BY count DESC
+    </select>
+
+    <!-- 重置上报单位表中数据内容资产状态 -->
+    <update id="resetDataContentAssetStatus">
+        UPDATE report_unit
+        SET source_table_data_content_asset = 0
+    </update>
+
+
+    <!-- 李文灿添加的 +++++++++++++++++++++++++++++++++++++++-->
+
+    <!-- 1. 获取上报单位所在省份 -->
+    <select id="getProvinceByReportUnit" resultType="java.lang.String">
+        SELECT DISTINCT province
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+          AND province IS NOT NULL  -- 过滤无效省份
+    </select>
+
+    <!-- 2. 按省份统计应用领域的记录数 -->
+    <select id="countApplicationFieldByProvince" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            application_field AS dimension,
+            COUNT(*) AS count  -- 统计该应用领域的记录总数
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND application_field IS NOT NULL  -- 过滤空值
+          AND application_field != ''        -- 过滤空字符串
+        GROUP BY application_field
+        ORDER BY application_field ASC  -- 按领域名称排序，方便前端展示
+    </select>
+
+    <!-- 3. 按省份统计开发工具的记录数 -->
+    <select id="countDevelopmentToolByProvince" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            development_tool AS dimension,
+            COUNT(*) AS count  -- 统计该开发工具的记录总数
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND development_tool IS NOT NULL
+          AND development_tool != ''
+        GROUP BY development_tool
+        ORDER BY development_tool ASC
+    </select>
+
+    <!-- 4. 按省份统计更新方式的记录数 -->
+    <select id="countUpdateMethodByProvince" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            update_method AS dimension,
+            COUNT(*) AS count  -- 统计该更新方式的记录总数
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND update_method IS NOT NULL
+          AND update_method != ''
+        GROUP BY update_method
+        ORDER BY update_method ASC
+    </select>
+
+    <!-- 5. 统计上报单位自身的应用领域记录数 -->
+    <select id="countUnitApplicationField" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            application_field AS dimension,
+            COUNT(*) AS count  -- 该上报单位下该应用领域的记录数
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+        GROUP BY application_field
+        ORDER BY application_field ASC
+    </select>
+
+    <!-- 6. 统计上报单位自身的开发工具记录数 -->
+    <select id="countUnitDevelopmentTool" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            development_tool AS dimension,
+            COUNT(*) AS count  -- 该上报单位下该开发工具的记录数
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+          AND development_tool IS NOT NULL
+          AND development_tool != ''
+        GROUP BY development_tool
+        ORDER BY development_tool ASC
+    </select>
+
+    <!-- 7. 统计上报单位自身的更新方式记录数 -->
+    <select id="countUnitUpdateMethod" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            update_method AS dimension,
+            COUNT(*) AS count  -- 该上报单位下该更新方式的记录数
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+          AND update_method IS NOT NULL
+          AND update_method != ''
+        GROUP BY update_method
+        ORDER BY update_method ASC
+    </select>
+
+    <!-- 按省份统计“某应用领域”的拥有单位数（去重） -->
+    <select id="countUnitsByProvinceAndAppField" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT report_unit)  -- 去重统计拥有该类别的上报单位数
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND application_field = #{field}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+    </select>
+
+    <!-- 按省份统计“某开发工具”的拥有单位数（去重） -->
+    <select id="countUnitsByProvinceAndDevTool" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT report_unit)
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND development_tool = #{tool}
+          AND development_tool IS NOT NULL
+          AND development_tool != ''
+    </select>
+
+    <!-- 按省份统计“某更新方式”的拥有单位数（去重） -->
+    <select id="countUnitsByProvinceAndUpdateMethod" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT report_unit)
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND update_method = #{method}
+          AND update_method IS NOT NULL
+          AND update_method != ''
+    </select>
+</mapper>

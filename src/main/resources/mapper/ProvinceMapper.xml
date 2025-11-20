@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ProvinceMapper.xml -->
+<mapper namespace="com.military.asset.mapper.ProvinceMapper">
+    <select id="selectByName" resultType="com.military.asset.entity.Province">
+        SELECT * FROM province WHERE name = #{name}
+    </select>
+    <select id="selectById" resultType="com.military.asset.entity.Province">
+        SELECT * FROM province WHERE provinceId = #{provinceId}
+    </select>
+    <select id="selectAllProvinceNames" resultType="java.lang.String">
+        SELECT name FROM province
+    </select>
+
+    <select id="selectAll" resultType="com.military.asset.entity.Province">
+        SELECT
+        code,
+        name,
+        level,
+        abbr,       <!-- 新增简称字段 -->
+        alias       <!-- 新增代号字段 -->
+        FROM province
+    </select>
+</mapper>

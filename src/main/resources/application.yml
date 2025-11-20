@@ -1,0 +1,91 @@
+# Spring Boot应用核心配置文件
+spring:
+  # 数据库连接配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/military_asset_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    # 修改为自己数据库的密码
+    # password: root
+    password: 123456
+
+    # Hikari连接池配置
+    hikari:
+      maximum-pool-size: 15
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # 🔧 修正：文件上传配置（100MB限制） - 放在正确的位置
+  servlet:
+    multipart:
+      max-file-size: 100MB        # 单个文件最大大小：100MB
+      max-request-size: 100MB     # 整个请求最大大小：100MB
+      enabled: true               # 启用文件上传
+
+  # HTTP编码配置
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+  # 消息编码配置
+  messages:
+    encoding: UTF-8
+
+# MyBatis-Plus配置
+mybatis-plus:
+  # Mapper XML文件存放路径
+  mapper-locations: classpath:mapper/*.xml
+
+  # 实体类别名包路径
+  type-aliases-package: com.military.asset.entity
+
+  # 全局配置
+  global-config:
+    db-config:
+      id-type: input  # 主键类型为手动输入
+      logic-delete-field: delFlag  # 逻辑删除字段名
+      logic-delete-value: 1  # 逻辑已删除值
+      logic-not-delete-value: 0  # 逻辑未删除值
+
+  # MyBatis核心配置
+  configuration:
+    # 开启数据库字段下划线转实体类驼峰命名
+    map-underscore-to-camel-case: true
+
+    # 配置SQL日志输出（开发环境开启）
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+    # 缓存配置
+    cache-enabled: true
+
+    # 其他配置
+    use-generated-keys: true
+    default-statement-timeout: 30
+
+# 服务器相关配置
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    # 服务器编码配置
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# 日志配置
+logging:
+  level:
+    com.military.asset: DEBUG
+    com.baomidou.mybatisplus: INFO
+    org.springframework: INFO
+  # 新增日志编码配置
+  charset:
+    console: UTF-8
+    file: UTF-8
+  pattern:
+    # 指定控制台日志格式（可选，确保包含UTF-8）
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
