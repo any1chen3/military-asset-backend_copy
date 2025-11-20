@@ -171,4 +171,10 @@ public interface CyberAssetMapper extends BaseMapper<CyberAsset> {
             "WHERE COALESCE(province, '未知') = #{province} " +
             "GROUP BY asset_category")
     List<Map<String, Object>> selectCyberCategoryStatsByProvince(@Param("province") String province);
+
+    /**
+     * 按上报单位汇总四类电话号码的实有数量。
+     */
+    List<Map<String, Object>> sumPhoneNumberQuantityByCategory(@Param("reportUnit") String reportUnit,
+                                                               @Param("categories") List<String> categories);
 }
