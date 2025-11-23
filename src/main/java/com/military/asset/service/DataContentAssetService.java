@@ -3,6 +3,7 @@ package com.military.asset.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.military.asset.entity.DataContentAsset;
 import com.military.asset.vo.ExcelErrorVO;
+import com.military.asset.vo.stat.ProvinceMetricVO;
 import com.military.asset.vo.excel.DataContentAssetExcelVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
@@ -173,6 +174,24 @@ public interface DataContentAssetService extends IService<DataContentAsset> {
      * @return 国产化率占比
      */
     BigDecimal calculateProvinceDomesticRate(String province);
+
+    /**
+     * 批量计算各省份信息化程度（省份总量 / 全部总量）。
+     *
+     * <p>直接从 data_content_asset 表聚合省份数据，避免依赖上报单位表或省份表，提升查询性能。</p>
+     *
+     * @return 各省份信息化程度列表
+     */
+    List<ProvinceMetricVO> calculateAllProvinceInformationDegree();
+
+    /**
+     * 批量计算各省份国产化率（国产工具总量 / 省份总量）。
+     *
+     * <p>仅依赖 data_content_asset 表聚合计算，提升接口响应速度。</p>
+     *
+     * @return 各省份国产化率列表
+     */
+    List<ProvinceMetricVO> calculateAllProvinceDomesticRate();
 
     // ============================ 新增方法（资产Map获取） ============================
 
