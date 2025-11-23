@@ -11,6 +11,10 @@ import com.military.asset.vo.ExcelErrorVO;
 import com.military.asset.vo.excel.SoftwareAssetExcelVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticRow;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
+import com.military.asset.vo.ReportUnitImportanceVO;
+import com.military.asset.vo.SoftwareRecommendationUpdateItem;
+import com.military.asset.vo.SoftwareUpgradeEvaluationRequest;
+import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -31,6 +35,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import com.military.asset.utils.SoftwareUpgradeFormulaUtils;
+import com.military.asset.utils.ReportUnitImportanceUtils;
 
 //导出功能依赖
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -117,6 +123,87 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
         return rows.stream()
                 .map(this::buildStatisticVO)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<SoftwareUpgradeRecommendationVO> generateUpgradeRecommendations(String reportUnit) {
+        if (!StringUtils.hasText(reportUnit)) {
+            throw new IllegalArgumentException("上报单位不能为空");
+        }
+
+        List<SoftwareAsset> assets = softwareAssetMapper.selectByReportUnitLight(reportUnit.trim());
+
+        if (assets.isEmpty()) {
+            throw new IllegalArgumentException("指定上报单位下未找到任何软件资产");
+        }
+
+        List<SoftwareUpgradeRecommendationVO> results = new ArrayList<>(assets.size());
+        List<SoftwareRecommendationUpdateItem> updateItems = new ArrayList<>(assets.size());
+
+        for (SoftwareAsset asset : assets) {
+            SoftwareUpgradeEvaluationRequest derived = SoftwareUpgradeFormulaUtils.deriveEvaluationFromAsset(asset);
+
+            BigDecimal necessity = SoftwareUpgradeFormulaUtils.calculateNecessity(
+                    derived.getCoefficient(),
+                    derived.getSecurityIndicator(),
+                    derived.getPerformanceIndicator(),
+                    derived.getRequirementMatch());
+
+            String recommendation = SoftwareUpgradeFormulaUtils.buildRecommendation(asset.getAssetName(), necessity);
+
+            SoftwareUpgradeRecommendationVO vo = new SoftwareUpgradeRecommendationVO();
+            vo.setAssetId(asset.getId());
+            vo.setAssetName(asset.getAssetName());
+            vo.setReportUnit(asset.getReportUnit());
+            vo.setNecessityScore(necessity);
+            vo.setUpgradeRequired(SoftwareUpgradeFormulaUtils.needsUpgrade(necessity));
+            vo.setRecommendation(recommendation);
+            results.add(vo);
+
+            updateItems.add(new SoftwareRecommendationUpdateItem(asset.getId(), recommendation));
+        }
+
+        boolean hasRecommendationColumn = softwareAssetMapper.hasRecommendationColumn();
+
+        if (!updateItems.isEmpty() && hasRecommendationColumn) {
+            softwareAssetMapper.batchUpdateRecommendations(updateItems);
+        } else if (!hasRecommendationColumn) {
+            log.warn("软件资产表缺少 recommendation 列，跳过升级建议批量写回，仅返回计算结果");
+        }
+
+        return results;
+    }
+
+    @Override
+    public List<ReportUnitImportanceVO> analyzeReportUnitImportance(String reportUnit) {
+        if (!StringUtils.hasText(reportUnit)) {
+            throw new IllegalArgumentException("上报单位不能为空");
+        }
+
+        List<SoftwareAsset> assets = softwareAssetMapper.selectByReportUnitLight(reportUnit.trim());
+
+        if (assets.isEmpty()) {
+            throw new IllegalArgumentException("指定上报单位下未找到任何软件资产");
+        }
+
+        List<BigDecimal> scores = new ArrayList<>(assets.size());
+        for (SoftwareAsset asset : assets) {
+            scores.add(ReportUnitImportanceUtils.deriveScoreFromAsset(asset));
+        }
+
+        BigDecimal avgScore = ReportUnitImportanceUtils.averageScore(scores);
+        String level = ReportUnitImportanceUtils.importanceLevel(avgScore);
+        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, avgScore, level, assets.size());
+
+        ReportUnitImportanceVO vo = new ReportUnitImportanceVO();
+        vo.setReportUnit(reportUnit);
+        vo.setAssetCount(assets.size());
+        vo.setImportanceScore(avgScore);
+        vo.setImportanceLevel(level);
+        vo.setAdvice(advice);
+
+        return Collections.singletonList(vo);
     }
     // ============================ 原有方法实现（添加上报单位同步） ============================
 

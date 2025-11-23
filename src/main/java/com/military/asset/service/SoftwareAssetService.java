@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.military.asset.entity.SoftwareAsset;
 import com.military.asset.vo.ExcelErrorVO;
+import com.military.asset.vo.ReportUnitImportanceVO;
 import com.military.asset.vo.excel.SoftwareAssetExcelVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
+import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 
 import java.util.List;
 import java.util.Map;
@@ -175,6 +177,22 @@ public interface SoftwareAssetService extends IService<SoftwareAsset> {
      * @return 统计结果列表
      */
     List<SoftwareAssetStatisticVO> statisticsByReportUnit();
+
+    /**
+     * 依据公式批量计算指定上报单位的升级必要性并生成升级建议。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 生成的升级建议结果
+     */
+    List<SoftwareUpgradeRecommendationVO> generateUpgradeRecommendations(String reportUnit);
+
+    /**
+     * 基于指定上报单位的软件应用资产得分按上报单位计算重要性。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 各上报单位的重要性评估
+     */
+    List<ReportUnitImportanceVO> analyzeReportUnitImportance(String reportUnit);
 
     // ============================ 新增方法（上报单位同步相关） ============================
 
