@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page; // 确保导�
 import com.military.asset.utils.DataContentAssetMetricsUtils;
 import com.military.asset.vo.ExcelErrorVO;
 import com.military.asset.vo.excel.DataContentAssetExcelVO;
+import com.military.asset.vo.stat.ProvinceMetricVO;
 
 import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Collections;
+import java.util.Set;
 
 
 //导出功能依赖
@@ -1648,6 +1650,45 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
     }
 
     @Override
+    public List<ProvinceMetricVO> calculateAllProvinceInformationDegree() {
+        Map<String, Long> provinceTotals = queryProvinceQuantities(null);
+        long totalQuantity = provinceTotals.values().stream().mapToLong(Long::longValue).sum();
+        if (totalQuantity <= 0) {
+            log.info("当前系统暂无数据内容资产，信息化程度列表为空");
+            return Collections.emptyList();
+        }
+
+        return provinceTotals.entrySet().stream()
+                .map(entry -> new ProvinceMetricVO(
+                        null,
+                        entry.getKey(),
+                        DataContentAssetMetricsUtils.calculateInformationDegree(entry.getValue(), totalQuantity)))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ProvinceMetricVO> calculateAllProvinceDomesticRate() {
+        Map<String, Long> provinceTotals = queryProvinceQuantities(null);
+        if (provinceTotals.isEmpty()) {
+            log.info("当前系统暂无数据内容资产，国产化率列表为空");
+            return Collections.emptyList();
+        }
+
+        Map<String, Long> domesticTotals = queryProvinceQuantities(DataContentAssetMetricsUtils.getDomesticDevelopmentTools());
+
+        return provinceTotals.entrySet().stream()
+                .map(entry -> {
+                    long provinceTotal = entry.getValue();
+                    long domesticTotal = domesticTotals.getOrDefault(entry.getKey(), 0L);
+                    return new ProvinceMetricVO(
+                            null,
+                            entry.getKey(),
+                            DataContentAssetMetricsUtils.calculateDomesticRate(domesticTotal, provinceTotal));
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public BigDecimal calculateProvinceInformationDegree(String province) {
         validateProvince(province);
         long totalQuantity = sumActualQuantity(
@@ -1722,6 +1763,31 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
                 .filter(Objects::nonNull)
                 .mapToLong(Integer::longValue)
                 .sum();
+    }
+
+    private Map<String, Long> queryProvinceQuantities(Set<String> developmentTools) {
+        QueryWrapper<DataContentAsset> wrapper = new QueryWrapper<>();
+        wrapper.select("province", "SUM(actual_quantity) AS total_quantity")
+                .isNotNull("province")
+                .ne("province", "")
+                .groupBy("province");
+
+        if (developmentTools != null && !developmentTools.isEmpty()) {
+            wrapper.in("development_tool", developmentTools);
+        }
+
+        List<Map<String, Object>> records = this.listMaps(wrapper);
+        if (records == null || records.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return records.stream()
+                .filter(record -> record.get("province") != null && record.get("total_quantity") != null)
+                .collect(Collectors.toMap(
+                        record -> record.get("province").toString(),
+                        record -> ((Number) record.get("total_quantity")).longValue(),
+                        Long::sum,
+                        LinkedHashMap::new));
     }
 
     // ============================ 新增方法实现（接口方法） ============================

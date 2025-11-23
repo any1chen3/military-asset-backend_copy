@@ -3,8 +3,6 @@ package com.military.asset.controller;
 import com.military.asset.entity.CyberAsset;
 import com.military.asset.entity.DataContentAsset;
 import com.military.asset.entity.SoftwareAsset;
-import com.military.asset.entity.Province;
-import com.military.asset.mapper.ProvinceMapper;
 import com.military.asset.service.CyberAssetService;
 import com.military.asset.service.DataContentAssetService;
 import com.military.asset.service.SoftwareAssetService;
@@ -19,10 +17,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
-import java.util.function.Function;
 
 // 添加以下import语句
 import java.util.Map;
@@ -65,7 +60,6 @@ public class AssetCrudController {
     private final SoftwareAssetService softwareService;
     private final CyberAssetService cyberService;
     private final DataContentAssetService dataService;
-    private final ProvinceMapper provinceMapper;
     private final ReportUnitService reportUnitService; // 新增：上报单位服务
 
     /**
@@ -75,12 +69,10 @@ public class AssetCrudController {
     public AssetCrudController(SoftwareAssetService softwareService,
                                CyberAssetService cyberService,
                                DataContentAssetService dataService,
-                               ProvinceMapper provinceMapper,
                                ReportUnitService reportUnitService) { // 新增参数
         this.softwareService = softwareService;
         this.cyberService = cyberService;
         this.dataService = dataService;
-        this.provinceMapper = provinceMapper;
         this.reportUnitService = reportUnitService; // 新增初始化
     }
 
@@ -1228,7 +1220,7 @@ public class AssetCrudController {
     @GetMapping("/data/province/information-degree")
     public ResultVO<List<ProvinceMetricVO>> calculateInformationDegree() {
         try {
-            List<ProvinceMetricVO> metrics = buildProvinceMetrics(dataService::calculateProvinceInformationDegree);
+            List<ProvinceMetricVO> metrics = dataService.calculateAllProvinceInformationDegree();
             return ResultVO.success(metrics, "各省份信息化程度计算成功");
         } catch (RuntimeException e) {
             log.error("各省份信息化程度批量计算失败", e);
@@ -1239,30 +1231,12 @@ public class AssetCrudController {
     @GetMapping("/data/province/domestic-rate")
     public ResultVO<List<ProvinceMetricVO>> calculateDomesticRate() {
         try {
-            List<ProvinceMetricVO> metrics = buildProvinceMetrics(dataService::calculateProvinceDomesticRate);
+            List<ProvinceMetricVO> metrics = dataService.calculateAllProvinceDomesticRate();
             return ResultVO.success(metrics, "各省份国产化率计算成功");
         } catch (RuntimeException e) {
             log.error("各省份国产化率批量计算失败", e);
             return ResultVO.fail("计算失败：" + e.getMessage());
         }
-    }
-
-    private List<ProvinceMetricVO> buildProvinceMetrics(Function<String, BigDecimal> calculator) {
-        List<Province> provinces = provinceMapper.selectAll();
-        if (Objects.isNull(provinces) || provinces.isEmpty()) {
-            log.warn("省份表未查询到数据，返回空列表");
-            return Collections.emptyList();
-        }
-
-        List<ProvinceMetricVO> metrics = new ArrayList<>(provinces.size());
-        for (Province province : provinces) {
-            if (province == null || province.getName() == null) {
-                continue;
-            }
-            BigDecimal value = calculator.apply(province.getName());
-            metrics.add(new ProvinceMetricVO(province.getCode(), province.getName(), value));
-        }
-        return metrics;
     }
 
     /**
