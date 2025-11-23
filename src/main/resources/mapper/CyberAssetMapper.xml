@@ -237,6 +237,17 @@
         SET source_table_cyber_asset = 0
     </update>
 
+    <!-- 根据资产分类按省份统计网信资产数量 -->
+    <select id="selectProvinceStatsByAssetCategory" resultType="map">
+        SELECT
+        COALESCE(province, '未知') as province,
+        COUNT(*) as count
+        FROM cyber_asset
+        WHERE asset_category = #{assetCategory}
+        GROUP BY province
+        ORDER BY count DESC
+    </select>
+
     <!-- 查询指定上报单位的全部资产，用于使用率分析 -->
     <select id="selectByReportUnit" resultType="com.military.asset.entity.CyberAsset">
         SELECT *
@@ -256,6 +267,22 @@
                  INNER JOIN report_unit ru ON ca.report_unit = ru.report_unit
         WHERE ru.province = #{province}
         GROUP BY ca.report_unit, ca.asset_category
+    </select>
+
+    <!-- 按上报单位汇总四类电话号码的实有数量 -->
+    <select id="sumPhoneNumberQuantityByCategory" resultType="java.util.HashMap">
+        SELECT
+        asset_category AS assetCategory,
+        SUM(COALESCE(actual_quantity, 0)) AS totalQuantity
+        FROM cyber_asset
+        WHERE report_unit = #{reportUnit}
+        <if test="categories != null and categories.size() > 0">
+            AND asset_category IN
+            <foreach collection="categories" item="category" open="(" close=")" separator=",">
+                #{category}
+            </foreach>
+        </if>
+        GROUP BY asset_category
     </select>
 
 </mapper>

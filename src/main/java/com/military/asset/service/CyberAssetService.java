@@ -354,4 +354,13 @@ public interface CyberAssetService extends IService<CyberAsset> {
      * @return 包含分类细分的统计结果
      */
     Map<String, Object> getProvinceAssetCategoryDetail(String province);
+
+    /**
+     * 接口6（c）
+     * 根据资产分类按省份统计网信资产数量
+     * 核心逻辑：使用网信资产表自身的province字段进行统计
+     * @param assetCategory 资产分类（固定值，如"自动电话号码"、"光缆纤芯"等）
+     * @return 省份-数量映射，key为省份名称，value为该省份的资产数量
+     */
+    Map<String, Long> getProvinceStatsByAssetCategory(String assetCategory);
 }

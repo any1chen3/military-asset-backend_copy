@@ -155,7 +155,13 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
             "GROUP BY asset_category")
     List<Map<String, Object>> selectDataContentCategoryStatsByProvince(@Param("province") String province);
 
-
+    /**
+     * 根据应用领域按省份统计数据资产数量
+     * 核心逻辑：使用数据资产表自身的province字段，按应用领域统计
+     * @param applicationField 应用领域
+     * @return 统计结果列表，包含province和count字段
+     */
+    List<Map<String, Object>> selectProvinceStatsByApplicationField(@Param("applicationField") String applicationField);
 
     //李文灿写的------------------------------
     // 获取上报单位所在省份

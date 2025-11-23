@@ -375,4 +375,14 @@ public interface DataContentAssetService extends IService<DataContentAsset> {
      * @return 包含分类细分的统计结果
      */
     Map<String, Object> getProvinceAssetCategoryDetail(String province);
+
+    /**
+     * 接口（c）
+     * 根据应用领域按省份统计数据资产数量
+     * 核心逻辑：使用数据资产表自身的province字段，按应用领域统计
+     * 注意：数据资产表的资产分类只有"数据内容资产"一个值，所以按应用领域统计更有意义
+     * @param applicationField 应用领域（固定值，如"后勤保障"、"作战指挥"等）
+     * @return 省份-数量映射，key为省份名称，value为该省份的资产数量
+     */
+    Map<String, Long> getProvinceStatsByApplicationField(String applicationField);
 }

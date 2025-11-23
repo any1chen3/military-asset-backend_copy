@@ -114,27 +114,57 @@ public class AreaCacheTool {
     // 缓存4：省份名→首府名（填省补市时用，如"浙江省"→"杭州市"）
     private final Map<String, String> provinceToCapitalMap = new HashMap<>();
 
-    // ============ 新增：验证缓存的方法 ============
+    // ============ 🆕 1121 新增：县级单位映射缓存 ============
+    /**
+     * 县级单位到省市映射缓存
+     * - Key：县级单位名称（如"涟水县"）
+     * - Value：省份-城市组合（如"江苏省-淮安市"）
+     */
+    @Getter
+    private final Map<String, String> countyToProvinceCityMap = new HashMap<>();
+
+    // ============ 🆕 1121 新增：县级映射JSON文件路径常量 ============
+    private static final String COUNTY_JSON_PATH = "province/county-mapping.json";
+
+    // ============  1121 新增：验证缓存的方法 ============
     /**
      * 验证缓存是否正常加载
      */
     public void validateCache() {
         System.out.println("=== AreaCacheTool 缓存验证 ===");
-        System.out.println("省份数量: " + allProvinceNames.size());
-        System.out.println("城市数量: " + allCityNames.size());
+//        System.out.println("省份数量: " + allProvinceNames.size());
+//        System.out.println("城市数量: " + allCityNames.size());
         System.out.println("城市到省份映射数量: " + cityToProvinceMap.size());
         System.out.println("省份到首府映射数量: " + provinceToCapitalMap.size());
 
-        // 验证几个关键数据
-        System.out.println("广东省首府: " + getCapitalByProvinceName("广东省"));
-        System.out.println("广州市对应省份: " + cityToProvinceMap.get("广州市"));
-        System.out.println("北京市首府: " + getCapitalByProvinceName("北京市"));
-        System.out.println("北京市对应省份: " + cityToProvinceMap.get("北京市"));
-
-        // 打印前几个省份和城市
-        System.out.println("前5个省份: " + allProvinceNames.subList(0, Math.min(5, allProvinceNames.size())));
-        System.out.println("前5个城市: " + allCityNames.subList(0, Math.min(5, allCityNames.size())));
+//        // 验证几个关键数据
+//        System.out.println("广东省首府: " + getCapitalByProvinceName("广东省"));
+//        System.out.println("广州市对应省份: " + cityToProvinceMap.get("广州市"));
+//        System.out.println("北京市首府: " + getCapitalByProvinceName("北京市"));
+//        System.out.println("北京市对应省份: " + cityToProvinceMap.get("北京市"));
+//
+//        // 打印前几个省份和城市
+//        System.out.println("前5个省份: " + allProvinceNames.subList(0, Math.min(5, allProvinceNames.size())));
+//        System.out.println("前5个城市: " + allCityNames.subList(0, Math.min(5, allCityNames.size())));
         System.out.println("=== AreaCacheTool 验证完成 ===");
+
+        // ============ 1121 新增：验证缓存的方法 ============
+        /**
+         * 验证缓存是否正常加载
+         */
+        System.out.println("=== AreaCacheTool 缓存验证 ===");
+        System.out.println("城市到省份映射数量: " + cityToProvinceMap.size());
+        System.out.println("省份到首府映射数量: " + provinceToCapitalMap.size());
+        // 🆕 新增：县级映射验证
+        System.out.println("县级单位映射数量: " + countyToProvinceCityMap.size());
+
+        // 🆕 新增：县级映射示例验证
+        if (!countyToProvinceCityMap.isEmpty()) {
+            String sampleCounty = countyToProvinceCityMap.keySet().iterator().next();
+            System.out.println("县级映射示例: " + sampleCounty + " → " + countyToProvinceCityMap.get(sampleCounty));
+        }
+        System.out.println("=== AreaCacheTool 验证完成 ===");
+
     }
 // ============ 新增结束 ============
 
@@ -198,8 +228,13 @@ public class AreaCacheTool {
             allProvinceNames.sort((a, b) -> Integer.compare(b.length(), a.length()));
             allCityNames.sort((a, b) -> Integer.compare(b.length(), a.length()));
 
-            logger.info("省市字典加载成功：{}个省，{}个市", allProvinceNames.size(), allCityNames.size());
-            System.out.println("省市字典加载成功：{}个省，{}个市".replace("{}", String.valueOf(allProvinceNames.size())).replace("{}", String.valueOf(allCityNames.size())));
+            // 🆕 新增：加载县级映射数据
+            loadCountyMappingData();
+
+            logger.info("省市字典加载成功：{}个省，{}个市，{}个县",
+                    allProvinceNames.size(), allCityNames.size(), countyToProvinceCityMap.size());
+            System.out.println("省市字典加载成功：" + allProvinceNames.size() + "个省，" +
+                    allCityNames.size() + "个市，" + countyToProvinceCityMap.size() + "个县");
 
         } catch (IOException e) {
             logger.error("读取provinceData.json失败！请检查路径是否正确: {}", e.getMessage());
@@ -237,7 +272,10 @@ public class AreaCacheTool {
         allProvinceNames.sort((a, b) -> Integer.compare(b.length(), a.length()));
         allCityNames.sort((a, b) -> Integer.compare(b.length(), a.length()));
 
-        logger.warn("使用默认省市数据，共{}个省", allProvinceNames.size());
+        // 🆕 新增：在默认数据中也尝试加载县级映射
+        loadCountyMappingData();
+
+        logger.warn("使用默认省市数据，共{}个省，{}个县", allProvinceNames.size(), countyToProvinceCityMap.size());
     }
 
     /**
@@ -271,5 +309,130 @@ public class AreaCacheTool {
     @Setter
     static class CityDTO {
         private String cityName; // 对应JSON的cityName
+    }
+
+    //================= 添加县级数据加载方法 ===========================
+    /**
+     * 🆕 新增：加载县级单位映射数据
+     * 从 county-mapping.json 文件加载县级单位到省市的映射关系
+     *
+     * 数据结构说明：
+     * {
+     *   "countyMapping": {
+     *     "江苏省": {
+     *       "淮安市": ["涟水县", "洪泽县", ...],
+     *       "连云港市": ["东海县", "灌云县", ...]
+     *     },
+     *     "广东省": {
+     *       "清远市": ["佛冈县", "阳山县", ...]
+     *     }
+     *   }
+     * }
+     *
+     * 处理逻辑：
+     * 1. 读取JSON文件并解析
+     * 2. 遍历省份→城市→县级单位的三层结构
+     * 3. 构建县级单位→"省份-城市"的映射关系
+     * 4. 存储到 countyToProvinceCityMap 缓存中
+     *
+     * 容错处理：
+     * - 文件不存在时记录警告但不影响主流程
+     * - JSON解析异常时使用空映射表
+     */
+    private void loadCountyMappingData() {
+        try {
+            ClassPathResource countyResource = new ClassPathResource(COUNTY_JSON_PATH);
+
+            if (!countyResource.exists()) {
+                logger.warn("县级映射文件不存在，跳过加载: {}", COUNTY_JSON_PATH);
+                System.out.println("⚠️ 县级映射文件不存在，跳过加载: " + COUNTY_JSON_PATH);
+                return;
+            }
+
+            // 读取JSON文件内容
+            String countyJsonContent = new String(
+                    countyResource.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8
+            );
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            Map<String, Object> countyData = objectMapper.readValue(
+                    countyJsonContent,
+                    new TypeReference<Map<String, Object>>() {}
+            );
+
+            // 解析县级映射数据
+            @SuppressWarnings("unchecked")
+            Map<String, Object> countyMapping = (Map<String, Object>) countyData.get("countyMapping");
+
+            if (countyMapping != null) {
+                for (Map.Entry<String, Object> provinceEntry : countyMapping.entrySet()) {
+                    String provinceName = provinceEntry.getKey();
+                    @SuppressWarnings("unchecked")
+                    Map<String, List<String>> cities = (Map<String, List<String>>) provinceEntry.getValue();
+
+                    for (Map.Entry<String, List<String>> cityEntry : cities.entrySet()) {
+                        String cityName = cityEntry.getKey();
+                        List<String> counties = cityEntry.getValue();
+
+                        for (String county : counties) {
+                            String provinceCityKey = provinceName + "-" + cityName;
+                            countyToProvinceCityMap.put(county, provinceCityKey);
+                            // 🚫 注释掉这行详细的调试日志，避免输出过多信息
+                            // logger.debug("加载县级映射: {} → {}", county, provinceCityKey);
+                        }
+                    }
+                }
+            }
+
+            logger.info("县级单位映射数据加载成功，共 {} 个县级单位", countyToProvinceCityMap.size());
+            System.out.println("✅ 县级单位映射数据加载成功，共 " + countyToProvinceCityMap.size() + " 个县级单位");
+
+        } catch (Exception e) {
+            logger.error("加载县级映射数据失败: {}", e.getMessage(), e);
+            System.err.println("❌ 加载县级映射数据失败: " + e.getMessage());
+            // 不抛出异常，避免影响主流程
+        }
+    }
+
+    // ==================== 添加县级数据相关的公共方法 ====================
+    /**
+     * 🆕 新增：根据县级单位名称获取对应的省市组合
+     *
+     * 功能说明：
+     * - 通过县级单位名称（如"涟水县"）查询对应的省份和城市
+     * - 返回格式："省份-城市"（如"江苏省-淮安市"）
+     *
+     * 应用场景：
+     * - ProvinceAutoFillTool中的县级单位推导
+     * - 基层单位的省市信息自动填充
+     *
+     * @param countyName 县级单位名称
+     * @return 省份-城市组合字符串，如未找到返回null
+     */
+    public String getProvinceCityByCounty(String countyName) {
+        if (countyName == null || countyName.trim().isEmpty()) {
+            return null;
+        }
+        return countyToProvinceCityMap.get(countyName.trim());
+    }
+
+    /**
+     * 🆕 新增：获取所有县级单位名称列表
+     *
+     * 功能说明：
+     * - 返回所有已加载的县级单位名称
+     * - 列表按名称长度倒序排序，确保准确匹配
+     *
+     * 排序说明：
+     * - 长名称优先匹配，避免"北京县"匹配到"北京"
+     * - 提高县级单位名称匹配的准确性
+     *
+     * @return 按长度倒序排序的县级单位名称列表
+     */
+    public List<String> getAllCountyNames() {
+        List<String> countyNames = new ArrayList<>(countyToProvinceCityMap.keySet());
+        countyNames.sort((a, b) -> Integer.compare(b.length(), a.length()));
+        return countyNames;
     }
 }

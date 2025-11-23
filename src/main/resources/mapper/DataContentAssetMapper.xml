@@ -199,6 +199,17 @@
         SET source_table_data_content_asset = 0
     </update>
 
+    <!-- 根据应用领域按省份统计数据资产数量 -->
+    <select id="selectProvinceStatsByApplicationField" resultType="map">
+        SELECT
+        COALESCE(province, '未知') as province,
+        COUNT(*) as count
+        FROM data_content_asset
+        WHERE application_field = #{applicationField}
+        GROUP BY province
+        ORDER BY count DESC
+    </select>
+
 
     <!-- 李文灿添加的 +++++++++++++++++++++++++++++++++++++++-->
 

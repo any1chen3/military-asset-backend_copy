@@ -135,6 +135,7 @@ public class AssetCrudController {
                         "   • 网信资产详情: /api/asset/cyber/{id}\n" +
                         "   • 网信资产联合查询: /api/asset/cyber/combined-query?pageNum=1&pageSize=50&reportUnit=xxx&province=xxx&city=xxx&categoryCode=xxx&assetCategory=xxx&quantityMin=xxx&quantityMax=xxx&usedQuantityMin=xxx&usedQuantityMax=xxx&startUseDateStart=xxx&startUseDateEnd=xxx&inventoryUnit=xxx\n" + // 新增：网信基础资产联合查询
                         "   • *网信资产使用率分析: /api/asset/cyber/usage-rate/report-unit/{reportUnit}\n" +
+                        "   • *上报单位电话资产分类分析: /api/asset/cyber/phone-number/report-unit/{reportUnit}\n" +
                         "\n" +
                         "（3）数据内容产表接口：\n" +
                         "   • 数据资产详情: /api/asset/data/{id}\n" +
@@ -168,10 +169,15 @@ public class AssetCrudController {
                         "     作用：统计34个省份+\"未知\"的三类资产数量及占比\n" +
                         "     返回：总数量 + 各省份三类资产的数量和百分比\n" +
 
-                        "   • 2）按省份和资产类型统计其资产分类细分: /api/asset/statistics/province-asset-detail?province=xx省&assetType=software\n" +
+                        "   • 2）按省份和资产类型统计其资产分类细分: /api/asset/statistics/province-asset-detail?province=xx省&assetType=xxx\n" +
                         "     参数：province(必填), assetType(必填: software/cyber/data)\n" +
                         "     作用：统计指定省份下指定资产类型的各资产分类数量和占比\n" +
                         "     返回：省份+资产类型+总数+各分类统计\n" +
+
+                        "   • 3）按表类型和分类统计各省份资产数量: /api/asset/statistics/province-by-category?tableType=xxx&category=xxx\n" +
+                        "     参数：tableType(必填): software/cyber/data, category(必填): 对于software/cyber表为资产分类，对于data表为应用领域\n" +
+                        "     作用：统计指定分类条件下各省份的资产数量\n" +
+                        "     返回：{省份: 数量}的映射，如{\"北京市\": 2, \"广东省\": 3}\n" +
 
 
                         // ============================== 增改删接口（1118ok） ==============================
@@ -1661,6 +1667,85 @@ public class AssetCrudController {
             return ResultVO.fail("统计失败：" + e.getMessage());
         }
     }
+
+    // ============================== 1120新增：按省份和分类统计资产数量接口 ==============================
+
+    /**
+     *接口6(c)：按省份和分类统计资产数量
+     * 访问路径：GET /api/asset/statistics/province-by-category
+     * 参数：
+     *   - tableType(必填): software/cyber/data
+     *   - category(必填):
+     *       对于software/cyber表 → 传入assetCategory的固定值
+     *       对于data表 → 传入applicationField的固定值
+     * 作用：统计指定分类条件下各省份的资产数量
+     * 核心逻辑：
+     *   - 软件资产表：通过关联report_unit表获取省份信息，按资产分类统计
+     *   - 网信资产表：使用自身的province字段，按资产分类统计
+     *   - 数据资产表：使用自身的province字段，按应用领域统计
+     * 返回格式：
+     * {
+     *   "code": 200,
+     *   "message": "成功",
+     *   "data": {
+     *     "北京市": 2,
+     *     "广东省": 3,
+     *     "上海市": 1
+     *   }
+     * }
+     *
+     * 示例：
+     * - 网信自动电话统计：GET /api/asset/statistics/province-by-category?tableType=cyber&category=自动电话号码
+     * - 软件作战指挥软件统计：GET /api/asset/statistics/province-by-category?tableType=software&category=作战指挥软件
+     * - 数据后勤保障统计：GET /api/asset/statistics/province-by-category?tableType=data&category=后勤保障
+     */
+    @GetMapping("/statistics/province-by-category")
+    public ResultVO<Map<String, Long>> getProvinceStatsByCategory(
+            @RequestParam String tableType,
+            @RequestParam String category) {
+        try {
+            log.info("开始按分类统计省份资产数量 - 表类型: {}, 分类: {}", tableType, category);
+
+            // 验证表类型参数
+            if (!isValidTableType(tableType)) {
+                return ResultVO.fail("表类型参数不合法，必须是: software, cyber, data");
+            }
+
+            // 验证分类参数不为空
+            if (category == null || category.trim().isEmpty()) {
+                return ResultVO.fail("分类参数不能为空");
+            }
+
+            Map<String, Long> provinceStats;
+
+            // 根据表类型调用不同的Service方法
+            switch (tableType) {
+                case "software":
+                    // 软件资产表：按资产分类统计
+                    provinceStats = softwareService.getProvinceStatsByAssetCategory(category);
+                    break;
+                case "cyber":
+                    // 网信资产表：按资产分类统计
+                    provinceStats = cyberService.getProvinceStatsByAssetCategory(category);
+                    break;
+                case "data":
+                    // 数据资产表：按应用领域统计（因为数据表资产分类只有"数据内容资产"一个值）
+                    provinceStats = dataService.getProvinceStatsByApplicationField(category);
+                    break;
+                default:
+                    throw new RuntimeException("不支持的资产类型: " + tableType);
+            }
+
+            log.info("按分类统计省份资产数量完成 - 表类型: {}, 分类: {}, 统计省份数: {}",
+                    tableType, category, provinceStats.size());
+
+            return ResultVO.success(provinceStats, "获取省份分类统计成功");
+        } catch (Exception e) {
+            log.error("按分类统计省份资产数量失败 - 表类型: {}, 分类: {}", tableType, category, e);
+            return ResultVO.fail("统计失败：" + e.getMessage());
+        }
+    }
+
 
 // ============================== 省份资产统计辅助方法 ==============================
 

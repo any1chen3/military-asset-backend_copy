@@ -123,8 +123,8 @@ public final class CyberAssetUsageFormulaUtils {
             return sorted.get(size / 2).setScale(USAGE_RATE_SCALE, ROUNDING_MODE);
         }
         BigDecimal low = sorted.get(size / 2 - 1);
-        BigDecimal high = sorted.get(size / 2);
-        return low.add(high).divide(BigDecimal.valueOf(2), USAGE_RATE_SCALE, ROUNDING_MODE);
+        //BigDecimal high = sorted.get(size / 2);
+        return low;
     }
 
     /**

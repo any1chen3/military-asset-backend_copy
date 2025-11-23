@@ -34,6 +34,8 @@ import java.util.LinkedHashMap;
 
 //导出功能依赖
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+// 接口6(c)用
+import org.springframework.beans.factory.annotation.Autowired;
 
 
 /**
@@ -64,6 +66,13 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
 //     * 最大有效年限：业务规则限定资产投入使用日期不能早于当前时间50年 (1115修改不需要了)
 //     */
 //    private static final int MAX_VALID_YEARS = 76;
+
+    /**
+     * 软件资产数据访问接口  用于接口6（c）
+     * 用于执行软件资产表的数据库操作，包括自定义查询和统计
+     */
+    @Autowired
+    private SoftwareAssetMapper softwareAssetMapper;
 
     // ============================ 新增依赖注入 ============================
 
@@ -1268,7 +1277,7 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
     /**
      * 获取指定省份软件资产的资产分类细分
      * 作用：统计指定省份下各软件资产分类的数量和占比，确保返回完整的固定分类列表
-     *
+
      * 核心业务逻辑：
      * 1. 查询该省份软件资产总数
      * 2. 查询该省份各分类的实际统计数据
@@ -1277,19 +1286,19 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
      * 5. 用实际查询结果更新对应分类的数量
      * 6. 计算各分类在该省份中的占比
      * 7. 返回完整的分类细分统计结果
-     *
+
      * 技术特点：
      * - 使用LinkedHashMap保持16个软件资产分类的顺序一致
      * - 确保返回所有固定分类，即使某些分类在该省份没有资产
      * - 基于该省份软件资产总数计算百分比，确保数据准确性
      * - 忽略数据库中不在固定映射表中的分类编码（理论上不应该存在）
-     *
+
      * 数据流程：
      * 数据库分类编码 → 固定分类映射 → 中文分类名称 → 完整分类列表
      *
      * @param province 省份名称，如"广东省"、"北京市"等
      * @return 包含省份、资产类型、总数和完整分类统计的Map对象
-     *
+
      * 返回数据结构：
      * {
      *   "province": "广东省",
@@ -1372,5 +1381,65 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
                 province, provinceTotalCount, formattedStats.size());
 
         return result;
+    }
+
+    /**
+     * 根据资产分类按省份统计软件资产数量
+
+     * 核心逻辑：
+     * 1. 软件资产表本身没有省份字段，需要通过关联report_unit表获取省份信息
+     * 2. 统计指定资产分类下各省份的资产数量分布
+     * 3. 处理省份为空的情况，统一归类为"未知"省份
+
+     * 适用场景：
+     * - 前端需要了解某类软件资产在全国各省份的分布情况
+     * - 领导决策支持，分析软件资产的区域分布特征
+     *
+     * @param assetCategory 资产分类名称，必须是有效的分类（如"作战指挥软件"、"安全防护软件"等）
+     * @return Map<String, Long> 省份-数量映射，key为省份名称，value为该省份的资产数量
+     * @throws RuntimeException 当统计过程中发生数据库异常或其他系统异常时抛出
+
+     * 示例返回：
+     * {
+     *   "北京市": 15,
+     *   "广东省": 8,
+     *   "江苏省": 6,
+     *   "未知": 3
+     * }
+     */
+    @Override
+    public Map<String, Long> getProvinceStatsByAssetCategory(String assetCategory) {
+        try {
+            log.info("开始按资产分类统计软件资产省份分布 - assetCategory: {}", assetCategory);
+
+            // 参数校验
+            if (assetCategory == null || assetCategory.trim().isEmpty()) {
+                log.warn("资产分类参数为空，无法进行统计");
+                return Collections.emptyMap();
+            }
+
+            // 通过关联report_unit表获取省份信息进行统计
+            List<Map<String, Object>> stats = softwareAssetMapper.selectProvinceStatsByAssetCategory(assetCategory);
+
+            Map<String, Long> result = new HashMap<>();
+            for (Map<String, Object> stat : stats) {
+                String province = (String) stat.get("province");
+                Long count = (Long) stat.get("count");
+
+                // 处理省份为null或空字符串的情况，统一转为"未知"
+                // 考虑因素：软件资产表没有省份字段，依赖report_unit表，可能存在关联失败的情况
+                if (province == null || province.trim().isEmpty()) {
+                    province = "未知";
+                }
+                result.put(province, count);
+            }
+
+            log.info("按资产分类统计软件资产省份分布完成 - assetCategory: {}, 统计省份数: {}",
+                    assetCategory, result.size());
+            return result;
+        } catch (Exception e) {
+            log.error("按资产分类统计软件资产省份分布失败 - assetCategory: {}", assetCategory, e);
+            throw new RuntimeException("统计失败：" + e.getMessage());
+        }
     }
 }

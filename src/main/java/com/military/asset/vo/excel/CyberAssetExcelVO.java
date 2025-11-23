@@ -59,7 +59,7 @@ public class CyberAssetExcelVO {
     private Double unitPrice;
 
     /** 数据库字段：amount（DECIMAL(10,2)，非核心列，可选） */
-    @ExcelProperty("金额")
+    @ExcelProperty("金额（元）")
     private Double amount;
 
     /** 数据库字段：pricing_method（VARCHAR(150)，非核心列，可选） */

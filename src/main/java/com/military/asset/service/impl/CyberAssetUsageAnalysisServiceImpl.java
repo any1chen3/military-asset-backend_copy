@@ -73,7 +73,10 @@ public class CyberAssetUsageAnalysisServiceImpl implements CyberAssetUsageAnalys
         for (String category : CYBER_ASSET_CATEGORIES) {
             List<CyberAsset> assets = assetsByCategory.getOrDefault(category, Collections.emptyList());
             List<BigDecimal> provinceRates = provinceUsageRateMap.getOrDefault(category, Collections.emptyList());
-            categoryResults.add(buildCategoryUsage(category, assets, provinceRates));
+            CyberAssetCategoryUsageVO categoryUsage = buildCategoryUsage(category, assets, provinceRates);
+            if (categoryUsage != null) {
+                categoryResults.add(categoryUsage);
+            }
         }
 
         CyberAssetUsageInsightVO insightVO = new CyberAssetUsageInsightVO();
@@ -99,6 +102,9 @@ public class CyberAssetUsageAnalysisServiceImpl implements CyberAssetUsageAnalys
                 .filter(this::isPositive)
                 .mapToInt(Integer::intValue)
                 .sum();
+        if (actualTotal == 0 && usedTotal == 0) {
+            return null;
+        }
 
         vo.setActualQuantity(actualTotal);
         vo.setUsedQuantity(usedTotal);

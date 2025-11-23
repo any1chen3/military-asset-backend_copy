@@ -178,4 +178,12 @@ public interface SoftwareAssetMapper extends BaseMapper<SoftwareAsset> {
             "WHERE COALESCE(ru.province, '未知') = #{province} " +
             "GROUP BY asset_category")
     List<Map<String, Object>> selectSoftwareCategoryStatsByProvince(@Param("province") String province);
+
+    /**
+     * 根据资产分类按省份统计软件资产数量
+     * 核心逻辑：通过关联report_unit表获取省份信息，因为软件资产表自身没有省份字段
+     * @param assetCategory 资产分类
+     * @return 统计结果列表，包含province和count字段
+     */
+    List<Map<String, Object>> selectProvinceStatsByAssetCategory(@Param("assetCategory") String assetCategory);
 }

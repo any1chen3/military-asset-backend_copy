@@ -67,11 +67,11 @@ public class DataContentAssetExcelVO {
     private String unit;
 
     /** 数据库字段：unit_price（DECIMAL(10,2)，非核心列，可选） */
-    @ExcelProperty("单价")
+    @ExcelProperty("单价（元）")
     private Double unitPrice;
 
     /** 数据库字段：amount（DECIMAL(10,2)，非核心列，可选） */
-    @ExcelProperty("金额")
+    @ExcelProperty("金额（元）")
     private Double amount;
 
     /** 数据库字段：pricing_method（VARCHAR(150)，非核心列，可选） */
@@ -93,6 +93,18 @@ public class DataContentAssetExcelVO {
     /** 数据库字段：inventory_unit（VARCHAR(150)，核心列，非空） */
     @ExcelProperty("盘点单位")
     private String inventoryUnit;
+
+    /** 数据库字段：inventory_remark（VARCHAR(150)，非核心列，可选） */
+    @ExcelProperty("盘点备注")
+    private String inventoryRemark;
+
+    /** 数据库字段：valuation_remark（VARCHAR(150)，非核心列，可选） */
+    @ExcelProperty("核价备注")
+    private String valuationRemark;
+
+    /** 数据库字段：original_account_remark（VARCHAR(150)，非核心列，可选） */
+    @ExcelProperty("原始账备注")
+    private String originalAccountRemark;
 
     /** 非数据库字段：Excel行号（用于错误定位） */
     private Integer excelRowNum;

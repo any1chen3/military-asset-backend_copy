@@ -146,6 +146,23 @@ public class DataContentAsset implements HasReportUnitAndProvince{
      * 数据库COMMENT：盘点单位（核心列，必填，负责盘点的单位）
      */
     private String inventoryUnit;
+    /**
+     * 盘点备注（对应数据库`inventory_remark`字段，VARCHAR(150) DEFAULT NULL）
+     * 数据库COMMENT：盘点备注（非核心列，选填）
+     */
+    private String inventoryRemark;
+
+    /**
+     * 核价备注（对应数据库`valuation_remark`字段，VARCHAR(150) DEFAULT NULL）
+     * 数据库COMMENT：核价备注（非核心列，选填）
+     */
+    private String valuationRemark;
+
+    /**
+     * 原始帐备注（对应数据库`original_account_remark`字段，VARCHAR(150) DEFAULT NULL）
+     * 数据库COMMENT：原始帐备注（非核心列，选填）
+     */
+    private String originalAccountRemark;
 
     /**
      * 数据入库时间（对应数据库`create_time`字段，DATETIME DEFAULT CURRENT_TIMESTAMP）

@@ -259,4 +259,16 @@
         SET source_table_software_asset = 0
     </update>
 
+    <!-- 根据资产分类按省份统计软件资产数量 -->
+    <select id="selectProvinceStatsByAssetCategory" resultType="map">
+        SELECT
+        COALESCE(ru.province, '未知') as province,
+        COUNT(*) as count
+        FROM software_asset sa
+        LEFT JOIN report_unit ru ON sa.report_unit = ru.report_unit
+        WHERE sa.asset_category = #{assetCategory}
+        GROUP BY ru.province
+        ORDER BY count DESC
+    </select>
+
 </mapper>

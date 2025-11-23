@@ -360,4 +360,12 @@ public interface SoftwareAssetService extends IService<SoftwareAsset> {
      */
     Map<String, Object> getProvinceAssetCategoryDetail(String province);
 
+    /**
+     * 接口6（c）
+     * 根据资产分类按省份统计软件资产数量
+     * 核心逻辑：通过关联report_unit表获取省份信息，因为软件资产表自身没有省份字段
+     * @param assetCategory 资产分类（固定值，如"作战指挥软件"、"安全防护软件"等）
+     * @return 省份-数量映射，key为省份名称，value为该省份的资产数量
+     */
+    Map<String, Long> getProvinceStatsByAssetCategory(String assetCategory);
 }
