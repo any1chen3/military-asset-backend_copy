@@ -10,6 +10,9 @@ import com.military.asset.service.ReportUnitService;
 import com.military.asset.vo.ResultVO;
 import com.military.asset.vo.stat.ProvinceMetricVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
+import com.military.asset.vo.ReportUnitImportanceVO;
+import com.military.asset.vo.SoftwareUpgradeEvaluationRequest;
+import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -848,6 +851,58 @@ public class AssetCrudController {
             log.error("软件资产联合查询失败，参数：pageNum={}, pageSize={}, reportUnit={}, categoryCode={}, assetCategory={}",
                     pageNum, pageSize, reportUnit, categoryCode, assetCategory, e);
             return ResultVO.fail("联合查询失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 上报单位重要性分析接口。
+     * <p>
+     * 作用：通过指定上报单位自动提取其软件资产并计算重要性等级，前端仅需提交上报单位即可。
+     * 性能：单次最多支持3万条资产在5秒内完成计算，采用流式分组避免额外SQL开销。
+     * 说明：公式位于utils工具类中，控制器仅负责参数校验与结果返回；请求方式改为GET以便前端直接传递上报单位。
+     * </p>
+     *
+     * @param reportUnit 上报单位名称
+     * @return 各上报单位的得分、重要性等级及说明
+     */
+    @GetMapping("/software/report-unit/importance")
+    public ResultVO<List<ReportUnitImportanceVO>> analyzeReportUnitImportance(
+            @RequestParam String reportUnit) {
+        long start = System.currentTimeMillis();
+        try {
+            List<ReportUnitImportanceVO> results = softwareService.analyzeReportUnitImportance(reportUnit);
+            long cost = System.currentTimeMillis() - start;
+            return ResultVO.success(results, "上报单位重要性分析完成，耗时" + cost + "ms，单位数：" + results.size());
+        } catch (Exception e) {
+            log.error("上报单位重要性分析失败，单位={}", reportUnit, e);
+            return ResultVO.fail("上报单位重要性分析失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 软件资产升级必要性批量计算接口。
+     * <p>
+     * 设计依据：
+     * 1) 公式：升级必要性 = 系数 × 安全指标 × 性能指标 × 需求匹配度；
+     * 2) 建议文案：结果 ≥0.5 → “软件A建议升级，建议时间为30~150日内完成”；0.2~0.5 → “软件A建议升级，建议时间为半年左右”；
+     * 3) 建议字段（recommendation）默认长度控制在150~350字符，便于直接写回软件资产表单；
+     * 4) 性能要求：单次最多处理3万条请求，在5秒内完成计算与批量写入（使用单条CASE批量更新）。
+     * 5) 请求方式：前端传入上报单位（GET参数），后端自动提取该单位的软件资产并计算升级必要性。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 升级必要性及建议
+     */
+    @GetMapping("/software/upgrade/recommendations")
+    public ResultVO<List<SoftwareUpgradeRecommendationVO>> generateSoftwareUpgradeRecommendations(
+            @RequestParam String reportUnit) {
+        long start = System.currentTimeMillis();
+        try {
+            List<SoftwareUpgradeRecommendationVO> results = softwareService.generateUpgradeRecommendations(reportUnit);
+            long cost = System.currentTimeMillis() - start;
+            return ResultVO.success(results, "升级建议生成成功，耗时" + cost + "ms，条数：" + results.size());
+        } catch (Exception e) {
+            log.error("批量生成软件资产升级建议失败，单位={}", reportUnit, e);
+            return ResultVO.fail("升级建议生成失败：" + e.getMessage());
         }
     }
 
