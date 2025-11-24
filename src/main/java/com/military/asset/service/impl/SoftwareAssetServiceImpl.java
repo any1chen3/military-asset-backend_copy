@@ -179,6 +179,12 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             scores.add(ReportUnitImportanceUtils.deriveScoreFromAsset(asset));
         }
 
+        Map<String, Long> deploymentScopeStats = assets.stream()
+                .collect(Collectors.groupingBy(asset -> {
+                    String scope = asset.getDeploymentScope();
+                    return StringUtils.hasText(scope) ? scope : "未填部署范围";
+                }, LinkedHashMap::new, Collectors.counting()));
+
         BigDecimal avgScore = ReportUnitImportanceUtils.averageScore(scores);
         String level = ReportUnitImportanceUtils.importanceLevel(avgScore);
         String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, avgScore, level, assets.size());
@@ -189,6 +195,7 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
         vo.setImportanceScore(avgScore);
         vo.setImportanceLevel(level);
         vo.setAdvice(advice);
+        vo.setDeploymentScopeStats(deploymentScopeStats);
 
         return Collections.singletonList(vo);
     }
