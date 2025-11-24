@@ -6,6 +6,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -15,6 +16,13 @@ public final class ReportUnitImportanceUtils {
 
     private static final BigDecimal HIGH_THRESHOLD = new BigDecimal("0.8");
     private static final BigDecimal MID_THRESHOLD = new BigDecimal("0.5");
+    private static final Map<String, BigDecimal> DEPLOYMENT_SCOPE_SCORE = Map.of(
+            "全军", BigDecimal.ONE,
+            "战区", new BigDecimal("0.8"),
+            "军种", new BigDecimal("0.6"),
+            "军以下", new BigDecimal("0.4"),
+            "军级单位内部", new BigDecimal("0.2")
+    );
 
     private ReportUnitImportanceUtils() {
         throw new IllegalStateException("Utility class");
@@ -78,20 +86,34 @@ public final class ReportUnitImportanceUtils {
 
     /**
      * 从软件资产字段推导一个 0~1 之间的得分，用于仅提供上报单位名称时的快速评估。
+     * <p>
+     * 计算规则：
+     * - 部署范围：全军、战区、军种、军以下、军级单位内部依次赋值 1/0.8/0.6/0.4/0.2；
+     * - 数量：按 0~100 进行归一化，大于 100 记为 1；
+     * - 综合得分：部署范围 60% + 数量 40%，并限制在 [0,1] 区间内。
+     * </p>
      */
     public static BigDecimal deriveScoreFromAsset(SoftwareAsset asset) {
         if (asset == null) {
             return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
         }
 
-        BigDecimal amountScore = Optional.ofNullable(asset.getAmount())
-                .map(a -> a.divide(BigDecimal.valueOf(100000), 4, RoundingMode.HALF_UP))
+        BigDecimal scopeScore = Optional.ofNullable(asset.getDeploymentScope())
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .map(DEPLOYMENT_SCOPE_SCORE::get)
                 .orElse(BigDecimal.ZERO);
+
         BigDecimal quantityScore = Optional.ofNullable(asset.getActualQuantity())
+                .filter(q -> q > 0)
                 .map(q -> BigDecimal.valueOf(q).divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP))
                 .orElse(BigDecimal.ZERO);
 
-        BigDecimal weighted = amountScore.multiply(BigDecimal.valueOf(0.6))
+        if (quantityScore.compareTo(BigDecimal.ONE) > 0) {
+            quantityScore = BigDecimal.ONE.setScale(4, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal weighted = scopeScore.multiply(BigDecimal.valueOf(0.6))
                 .add(quantityScore.multiply(BigDecimal.valueOf(0.4)));
 
         if (weighted.compareTo(BigDecimal.ONE) > 0) {

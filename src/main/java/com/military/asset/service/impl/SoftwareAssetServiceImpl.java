@@ -12,7 +12,6 @@ import com.military.asset.vo.excel.SoftwareAssetExcelVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticRow;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
 import com.military.asset.vo.ReportUnitImportanceVO;
-import com.military.asset.vo.SoftwareRecommendationUpdateItem;
 import com.military.asset.vo.SoftwareUpgradeEvaluationRequest;
 import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 import lombok.extern.slf4j.Slf4j;
@@ -139,8 +138,6 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
         }
 
         List<SoftwareUpgradeRecommendationVO> results = new ArrayList<>(assets.size());
-        List<SoftwareRecommendationUpdateItem> updateItems = new ArrayList<>(assets.size());
-
         for (SoftwareAsset asset : assets) {
             SoftwareUpgradeEvaluationRequest derived = SoftwareUpgradeFormulaUtils.deriveEvaluationFromAsset(asset);
 
@@ -160,16 +157,6 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             vo.setUpgradeRequired(SoftwareUpgradeFormulaUtils.needsUpgrade(necessity));
             vo.setRecommendation(recommendation);
             results.add(vo);
-
-            updateItems.add(new SoftwareRecommendationUpdateItem(asset.getId(), recommendation));
-        }
-
-        boolean hasRecommendationColumn = softwareAssetMapper.hasRecommendationColumn();
-
-        if (!updateItems.isEmpty() && hasRecommendationColumn) {
-            softwareAssetMapper.batchUpdateRecommendations(updateItems);
-        } else if (!hasRecommendationColumn) {
-            log.warn("软件资产表缺少 recommendation 列，跳过升级建议批量写回，仅返回计算结果");
         }
 
         return results;
