@@ -38,14 +38,6 @@ public interface SoftwareAssetStatisticsService {
     SoftwareAssetUpgradeStatusVO determineAssetUpgradeStatus(String assetId);
 
     /**
-     * 查询指定上报单位下所有软件资产的升级判定结果。
-     *
-     * @param reportUnit 上报单位名称
-     * @return 资产列表及判定结果
-     */
-    SoftwareAssetUpgradeOverviewVO listReportUnitUpgradeOverview(String reportUnit);
-
-    /**
      * 针对指定上报单位生成包含自主研发能力与服务状态的综合指标。
      *
      * @param reportUnit 上报单位名称
