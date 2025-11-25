@@ -161,6 +161,43 @@ public class SoftwareAssetStatisticsServiceImpl implements SoftwareAssetStatisti
         return overviewVO;
     }
     @Override
+    public SoftwareAssetUpgradeOverviewVO listReportUnitUpgradeOverview(String reportUnit) {
+        if (!StringUtils.hasText(reportUnit)) {
+            throw new IllegalArgumentException("reportUnit不能为空");
+        }
+
+        String trimmedReportUnit = reportUnit.trim();
+        LocalDate today = LocalDate.now();
+
+        List<SoftwareAsset> assets = softwareAssetService.list(new QueryWrapper<SoftwareAsset>()
+                .eq("report_unit", trimmedReportUnit)
+                .orderByAsc("id"));
+
+        List<SoftwareAssetUpgradeWithInfoVO> upgradeList = assets.stream()
+                .map(asset -> {
+                    SoftwareAssetUpgradeWithInfoVO vo = new SoftwareAssetUpgradeWithInfoVO();
+                    vo.setAssetType(asset.getAssetCategory());
+                    vo.setAssetName(asset.getAssetName());
+                    vo.setAcquisitionMethod(asset.getAcquisitionMethod());
+                    vo.setFunctionBrief(asset.getFunctionBrief());
+                    vo.setDeploymentScope(asset.getDeploymentScope());
+                    vo.setActualQuantity(asset.getActualQuantity());
+                    vo.setUnit(asset.getUnit());
+                    vo.setServiceStatus(asset.getServiceStatus());
+                    vo.setPutIntoUseDate(asset.getPutIntoUseDate());
+                    // 投入使用日期早于“参考日期-默认阈值(5年)”即视为需要升级
+                    vo.setRequiresUpgrade(SoftwareAssetAgingCalculator.requiresUpgrade(asset.getPutIntoUseDate(), today));
+                    return vo;
+                })
+                .collect(Collectors.toList());
+
+        SoftwareAssetUpgradeOverviewVO overviewVO = new SoftwareAssetUpgradeOverviewVO();
+        overviewVO.setReportUnit(trimmedReportUnit);
+        overviewVO.setAssets(upgradeList);
+        return overviewVO;
+    }
+
+    @Override
     public SoftwareAssetInsightVO buildReportUnitInsight(String reportUnit) {
         if (!StringUtils.hasText(reportUnit)) {
             throw new IllegalArgumentException("reportUnit不能为空");
