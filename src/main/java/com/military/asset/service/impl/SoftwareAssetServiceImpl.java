@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -174,25 +175,25 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             throw new IllegalArgumentException("指定上报单位下未找到任何软件资产");
         }
 
-        List<BigDecimal> scores = new ArrayList<>(assets.size());
-        for (SoftwareAsset asset : assets) {
-            scores.add(ReportUnitImportanceUtils.deriveScoreFromAsset(asset));
-        }
-
         Map<String, Long> deploymentScopeStats = assets.stream()
                 .collect(Collectors.groupingBy(asset -> {
                     String scope = asset.getDeploymentScope();
                     return StringUtils.hasText(scope) ? scope : "未填部署范围";
-                }, LinkedHashMap::new, Collectors.counting()));
+                }, LinkedHashMap::new, Collectors.summingLong(asset -> Optional
+                        .ofNullable(asset.getActualQuantity())
+                        .orElse(0))));
 
-        BigDecimal avgScore = ReportUnitImportanceUtils.averageScore(scores);
-        String level = ReportUnitImportanceUtils.importanceLevel(avgScore);
-        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, avgScore, level, assets.size());
+        long totalQuantity = deploymentScopeStats.values().stream().mapToLong(Long::longValue).sum();
+
+        BigDecimal totalScore = ReportUnitImportanceUtils.calculateImportanceScore(deploymentScopeStats);
+        long effectiveScopeCount = deploymentScopeStats.values().stream().filter(count -> count > 0).count();
+        String level = ReportUnitImportanceUtils.importanceLevel(totalScore, (int) effectiveScopeCount);
+        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, totalScore, level, totalQuantity);
 
         ReportUnitImportanceVO vo = new ReportUnitImportanceVO();
         vo.setReportUnit(reportUnit);
-        vo.setAssetCount(assets.size());
-        vo.setImportanceScore(avgScore);
+        vo.setAssetCount(totalQuantity);
+        vo.setImportanceScore(totalScore);
         vo.setImportanceLevel(level);
         vo.setAdvice(advice);
         vo.setDeploymentScopeStats(deploymentScopeStats);

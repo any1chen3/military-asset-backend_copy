@@ -19,7 +19,7 @@ public class ReportUnitImportanceVO {
     /**
      * 参与计算的资产数量。
      */
-    private int assetCount;
+    private long assetCount;
 
     /**
      * 综合重要性得分（0~1）。
@@ -38,7 +38,7 @@ public class ReportUnitImportanceVO {
 
     /**
      * 部署范围分布统计。
-     * key：部署范围（如“军以下”“全军”），value：对应资产数量。
+     * key：部署范围（如“军以下”“全军”），value：对应资产实有数量之和。
      */
     private Map<String, Long> deploymentScopeStats;
 }
