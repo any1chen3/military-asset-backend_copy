@@ -3,16 +3,15 @@ package com.military.asset.controller;
 import com.military.asset.entity.CyberAsset;
 import com.military.asset.entity.DataContentAsset;
 import com.military.asset.entity.SoftwareAsset;
+import com.military.asset.entity.Province;
+import com.military.asset.mapper.ProvinceMapper;
 import com.military.asset.service.CyberAssetService;
 import com.military.asset.service.DataContentAssetService;
 import com.military.asset.service.SoftwareAssetService;
 import com.military.asset.service.ReportUnitService;
-import com.military.asset.vo.ResultVO;
+import com.military.asset.vo.*;
 import com.military.asset.vo.stat.ProvinceMetricVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
-import com.military.asset.vo.ReportUnitImportanceVO;
-import com.military.asset.vo.SoftwareUpgradeEvaluationRequest;
-import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +19,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
 
 // 添加以下import语句
 import java.util.Map;
@@ -39,9 +41,6 @@ import com.military.asset.vo.excel.SoftwareAssetExcelVO;
 import com.military.asset.vo.excel.CyberAssetExcelVO;
 import com.military.asset.vo.excel.DataContentAssetExcelVO;
 // 查询VO类
-import com.military.asset.vo.SoftwareQueryVO;
-import com.military.asset.vo.CyberQueryVO;
-import com.military.asset.vo.DataContentQueryVO;
 
 // 按省统计
 import java.util.Set;
@@ -63,6 +62,7 @@ public class AssetCrudController {
     private final SoftwareAssetService softwareService;
     private final CyberAssetService cyberService;
     private final DataContentAssetService dataService;
+    private final ProvinceMapper provinceMapper;
     private final ReportUnitService reportUnitService; // 新增：上报单位服务
 
     /**
@@ -72,10 +72,12 @@ public class AssetCrudController {
     public AssetCrudController(SoftwareAssetService softwareService,
                                CyberAssetService cyberService,
                                DataContentAssetService dataService,
+                               ProvinceMapper provinceMapper,
                                ReportUnitService reportUnitService) { // 新增参数
         this.softwareService = softwareService;
         this.cyberService = cyberService;
         this.dataService = dataService;
+        this.provinceMapper = provinceMapper;
         this.reportUnitService = reportUnitService; // 新增初始化
     }
 
@@ -125,6 +127,11 @@ public class AssetCrudController {
                         "   • *软件资产取得方式统计: /api/asset/software/statistics/v2/acquisition\n" +
                         "   • *软件资产服务状态统计: /api/asset/software/statistics/v2/service-status\n" +
                         "   • *软件资产省份老化统计: /api/asset/software/statistics/v2/aging/province\n" +
+                        "   • *上报单位重要性分析接口: /api/asset/software/report-unit/importance\n"+
+                        "   • *软件资产升级必要性批量计算接口: /api/asset/software/upgrade/recommendations\n"+
+                        "   • *上报单位下所有软件资产的升级判定接口: /api/asset/software/statistics/v2/report-unit/{reportUnit}/upgrade-overview\n"+
+
+
                         "\n" +
                         "（2） 网信基础资产表接口：\n" +
                         "   • 网信资产详情: /api/asset/cyber/{id}\n" +
@@ -137,7 +144,8 @@ public class AssetCrudController {
                         "   • 数据资产联合查询: /api/asset/data/combined-query?pageNum=1&pageSize=50&reportUnit=xxx&province=xxx&city=xxx&applicationField=xxx&developmentTool=xxx&quantityMin=xxx&quantityMax=xxx&updateCycle=xxx&updateMethod=xxx&inventoryUnit=xxx\n" + // 新增：数据内容资产联合查询
                         "   • *数据资产信息化程度（全部省份）: /api/asset/data/province/information-degree\n" +
                         "   • *数据资产国产化率（全部省份）: /api/asset/data/province/domestic-rate\n\n" +
-                        "\n" +
+                        "   • *数据内容资产-按上报单位的领域与更新周期分析接口: /api/asset/data/report-unit/domain-cycle-analysis?reportUnit=xxx\n\n" +
+                                "\n" +
                         "（4）单独要实现的额外查询接口（GET请求）：\n" +
                             " a)接口1:\n" +
                         "   • 三类资产数据量统计: /api/asset/statistics/count\n" +
@@ -853,13 +861,13 @@ public class AssetCrudController {
             return ResultVO.fail("联合查询失败：" + e.getMessage());
         }
     }
-
     /**
      * 上报单位重要性分析接口。
      * <p>
      * 作用：通过指定上报单位自动提取其软件资产并计算重要性等级，前端仅需提交上报单位即可。
      * 性能：单次最多支持3万条资产在5秒内完成计算，采用流式分组避免额外SQL开销。
      * 说明：公式位于utils工具类中，控制器仅负责参数校验与结果返回；请求方式改为GET以便前端直接传递上报单位。
+     * * 输出：返回重要性得分、等级、建议，并附带各部署范围的资产数量分布（例：“军以下”：3，“全军”：2）。
      * </p>
      *
      * @param reportUnit 上报单位名称
@@ -885,8 +893,6 @@ public class AssetCrudController {
      * 设计依据：
      * 1) 公式：升级必要性 = 系数 × 安全指标 × 性能指标 × 需求匹配度；
      * 2) 建议文案：结果 ≥0.5 → “软件A建议升级，建议时间为30~150日内完成”；0.2~0.5 → “软件A建议升级，建议时间为半年左右”；
-     * 3) 建议字段（recommendation）默认长度控制在150~350字符，便于直接写回软件资产表单；
-     * 4) 性能要求：单次最多处理3万条请求，在5秒内完成计算与批量写入（使用单条CASE批量更新）。
      * 5) 请求方式：前端传入上报单位（GET参数），后端自动提取该单位的软件资产并计算升级必要性。
      *
      * @param reportUnit 上报单位名称
@@ -905,6 +911,7 @@ public class AssetCrudController {
             return ResultVO.fail("升级建议生成失败：" + e.getMessage());
         }
     }
+
 
     // ============================== 新增：软件资产额外查询接口 ==============================
     /**
@@ -1232,6 +1239,41 @@ public class AssetCrudController {
             log.error("数据内容资产联合查询失败，参数：pageNum={}, pageSize={}, reportUnit={}, province={}, city={}",
                     pageNum, pageSize, reportUnit, province, city, e);
             return ResultVO.fail("联合查询失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 数据内容资产-按上报单位的领域与更新周期分析接口。
+     * <p>
+     * 需求：前端仅传入上报单位，返回该单位在各应用领域、更新周期的资产数量及占比，并结合
+     * 职能分类、资源配置失衡（某类资产数量过高）和更新周期依赖度评分进行分析。
+     * 性能要求：基于数据库分组统计+公式工具类，3万条以上数据5秒内响应。
+     * </p>
+     * <p>
+     * 响应字段包含：
+     * <ul>
+     *     <li>applicationFieldCounts / applicationFieldRatios：八大应用领域的数量与占比（缺失自动补0）。</li>
+     *     <li>domainCategoryCounts / domainCategoryRatios：管理水平、保障能力、战备水平三类的数量与占比。</li>
+     *     <li>updateCycleCounts / updateCycleRatios：八种更新周期的数量与占比（缺失补0）。</li>
+     *     <li>functionCategory：按主导占比判定的职能类型（或均衡型）。</li>
+     *     <li>imbalanceWarnings：某领域或类别占比过高的提示列表。</li>
+     *     <li>dependencyScore / dependencyLevel：基于更新周期加权的依赖得分与等级。</li>
+     *     <li>updateRhythmTendency：更新节奏倾向（高频实时/低频管理/静态档案/混合）。</li>
+     * </ul>
+     * </p>
+     *
+     * @param reportUnit 上报单位名称
+     * @return 领域分布、更新节奏、职能分类与依赖度综合分析
+     */
+    @GetMapping("/data/report-unit/domain-cycle-analysis")
+    public ResultVO<DataAssetReportUnitAnalysisVO> analyzeDataAssetByReportUnit(
+            @RequestParam String reportUnit) {
+        try {
+            DataAssetReportUnitAnalysisVO analysis = dataService.analyzeReportUnitDomainAndCycle(reportUnit);
+            return ResultVO.success(analysis, "上报单位领域与更新周期分析成功");
+        } catch (Exception e) {
+            log.error("上报单位领域与更新周期分析失败，单位={}", reportUnit, e);
+            return ResultVO.fail("分析失败：" + e.getMessage());
         }
     }
 

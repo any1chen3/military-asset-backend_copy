@@ -43,6 +43,12 @@ public class SoftwareAssetStatisticsController {
         return execute(() -> statisticsService.determineAssetUpgradeStatus(assetId),
                 "软件资产升级判定查询成功");
     }
+    @GetMapping("/report-unit/{reportUnit}/upgrade-overview")
+    public ResultVO<SoftwareAssetUpgradeOverviewVO> reportUnitUpgradeOverview(
+            @PathVariable("reportUnit") String reportUnit) {
+        return execute(() -> statisticsService.listReportUnitUpgradeOverview(reportUnit),
+                "软件资产升级判定清单查询成功");
+    }
     @GetMapping("/report-unit/{reportUnit}/insight")
     public ResultVO<SoftwareAssetInsightVO> reportUnitInsight(@PathVariable("reportUnit") String reportUnit) {
         return execute(() -> statisticsService.buildReportUnitInsight(reportUnit),

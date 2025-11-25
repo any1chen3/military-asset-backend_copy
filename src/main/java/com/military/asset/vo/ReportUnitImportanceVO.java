@@ -3,6 +3,7 @@ package com.military.asset.vo;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 /**
  * 上报单位重要性分析结果。
@@ -18,7 +19,7 @@ public class ReportUnitImportanceVO {
     /**
      * 参与计算的资产数量。
      */
-    private int assetCount;
+    private long assetCount;
 
     /**
      * 综合重要性得分（0~1）。
@@ -34,4 +35,9 @@ public class ReportUnitImportanceVO {
      * 分析说明。
      */
     private String advice;
+    /**
+     * 部署范围分布统计。
+     * key：部署范围（如“军以下”“全军”），value：对应资产实有数量之和。
+     */
+    private Map<String, Long> deploymentScopeStats;
 }

@@ -7,6 +7,7 @@ import com.military.asset.mapper.ReportUnitMapper;
 import com.military.asset.service.CyberAssetUsageAnalysisService;
 import com.military.asset.utils.CategoryMapUtils;
 import com.military.asset.utils.CyberAssetUsageFormulaUtils;
+import com.military.asset.utils.SoftwareAssetAgingCalculator;
 import com.military.asset.vo.CyberAssetCategoryUsageVO;
 import com.military.asset.vo.CyberAssetUsageInsightVO;
 import com.military.asset.vo.CyberAssetUsageProvinceStatsVO;
@@ -83,7 +84,29 @@ public class CyberAssetUsageAnalysisServiceImpl implements CyberAssetUsageAnalys
         insightVO.setReportUnit(reportUnit);
         insightVO.setProvince(province);
         insightVO.setCategories(categoryResults);
+        insightVO.setAgingRate(calculateAgingRate(unitAssets));
         return insightVO;
+    }
+
+    private BigDecimal calculateAgingRate(List<CyberAsset> unitAssets) {
+        if (CollectionUtils.isEmpty(unitAssets)) {
+            return CyberAssetUsageFormulaUtils.calculateUsageRate(0, 0);
+        }
+        LocalDate agingThreshold = LocalDate.now().minusYears(8);
+        int totalQuantity = 0;
+        int agingQuantity = 0;
+        for (CyberAsset asset : unitAssets) {
+            if (asset == null) {
+                continue;
+            }
+            int actualQuantity = safeQuantity(asset.getActualQuantity());
+            totalQuantity += actualQuantity;
+            LocalDate putIntoUseDate = asset.getPutIntoUseDate();
+            if (putIntoUseDate != null && !putIntoUseDate.isAfter(agingThreshold)) {
+                agingQuantity += actualQuantity;
+            }
+        }
+        return CyberAssetUsageFormulaUtils.calculateUsageRate(agingQuantity, totalQuantity);
     }
 
     private CyberAssetCategoryUsageVO buildCategoryUsage(String category,
@@ -106,11 +129,21 @@ public class CyberAssetUsageAnalysisServiceImpl implements CyberAssetUsageAnalys
             return null;
         }
 
+        int agingTotal = assets.stream()
+                .filter(asset -> SoftwareAssetAgingCalculator.requiresUpgrade(
+                        asset.getPutIntoUseDate(), LocalDate.now()))
+                .map(CyberAsset::getUsedQuantity)
+                .map(this::safeQuantity)
+                .mapToInt(Integer::intValue)
+                .sum();
+
         vo.setActualQuantity(actualTotal);
         vo.setUsedQuantity(usedTotal);
         vo.setUnit(resolveUnit(assets));
         BigDecimal usageRate = CyberAssetUsageFormulaUtils.calculateUsageRate(usedTotal, actualTotal);
         vo.setUsageRate(usageRate);
+        vo.setAgingQuantity(agingTotal);
+        vo.setAgingRate(SoftwareAssetAgingCalculator.calculateAgingRatio(agingTotal, actualTotal));
 
         List<CyberAssetUsageFormulaUtils.UsageDurationSample> samples = buildUsageSamples(assets);
         BigDecimal usageYears = CyberAssetUsageFormulaUtils.calculateWeightedUsageYears(samples, LocalDate.now());

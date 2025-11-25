@@ -18,8 +18,15 @@ public class CyberAssetCategoryUsageVO {
 
     private String unit;
 
+    /** 老化资产数量 */
+    private Integer agingQuantity;
+
     /** 本单位使用率 */
     private BigDecimal usageRate;
+
+    /** 本单位老化率 */
+    private BigDecimal agingRate;
+
 
     /** 本单位平均使用年限 */
     private BigDecimal usageYears;

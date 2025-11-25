@@ -44,4 +44,11 @@ public interface SoftwareAssetStatisticsService {
      * @return 综合指标
      */
     SoftwareAssetInsightVO buildReportUnitInsight(String reportUnit);
+    /**
+     * 查询指定上报单位下所有软件资产的升级判定结果。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 资产列表及判定结果
+     */
+    SoftwareAssetUpgradeOverviewVO listReportUnitUpgradeOverview(String reportUnit);
 }

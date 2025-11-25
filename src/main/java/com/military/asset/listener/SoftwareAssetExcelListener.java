@@ -132,7 +132,7 @@ public class SoftwareAssetExcelListener extends AnalysisEventListener<SoftwareAs
             } else {
                 // 所有校验通过，添加到有效数据列表
                 validDataList.add(excelVO);
-                log.debug("第{}行数据校验通过，加入有效数据列表", rowNum);
+//                log.debug("第{}行数据校验通过，加入有效数据列表", rowNum);
             }
 
         } catch (Exception e) {

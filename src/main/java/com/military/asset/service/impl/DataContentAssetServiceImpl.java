@@ -4,10 +4,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.military.asset.entity.DataContentAsset;
 import com.military.asset.mapper.DataContentAssetMapper;
 import com.military.asset.service.DataContentAssetService;
-import com.military.asset.utils.CategoryMapUtils;
-import com.military.asset.utils.ProvinceAutoFillTool; // 新增：导入自动填充工具
+import com.military.asset.utils.*;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page; // 确保导入Page类
-import com.military.asset.utils.DataContentAssetMetricsUtils;
+import com.military.asset.vo.DataAssetReportUnitAnalysisVO;
 import com.military.asset.vo.ExcelErrorVO;
 import com.military.asset.vo.excel.DataContentAssetExcelVO;
 import com.military.asset.vo.stat.ProvinceMetricVO;
@@ -44,9 +43,6 @@ import com.military.asset.entity.ReportUnit;
 import com.military.asset.entity.HasReportUnitAndProvince;
 import com.military.asset.mapper.CyberAssetMapper;
 import com.military.asset.mapper.ReportUnitMapper;
-import com.military.asset.utils.AreaCacheTool;
-
-
 
 
 /**
@@ -260,9 +256,39 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
      * 本方法用于新增单条数据内容资产记录，包含完整的数据校验、业务处理、数据保存和上报单位表同步功能。
      * 数据内容资产表与其他资产表的主要区别：有省市字段，需要同时维护自身省市字段和上报单位表。
      * 核心流程：
-     * 1. 自动填充省市阶段 → 2. 数据校验阶段 → 3. 数据处理阶段 → 4. 数据保存阶段 → 5. 上报单位表同步阶段
+     * 1. 智能省市处理阶段 → 2. 数据校验阶段 → 3. 数据处理阶段 → 4. 数据保存阶段 → 5. 上报单位表同步阶段 → 6. 级联更新阶段 → 7. 跨表同步阶段
 
-     *  数据校验规则（按字段顺序）：
+     * ==================== 新增场景处理逻辑 ====================
+     *
+     * 🎯 场景A：用户输入了有效省市
+     *   - 用户输入"江苏省-南京市"（有效且一致） → 直接使用用户输入
+     *   - 用户输入"江苏省-广州市"（有效但不一致） → "江苏省-未知"（市设为未知，省保留）
+     *   - 用户输入"江苏省-无效市"（省有效市无效） → "江苏省-未知"
+     *   - 用户输入"无效省-南京市"（省无效市有效） → "江苏省-南京市"（根据市推导省）
+     *
+     * 🎯 场景B：用户输入无效，上报单位表存在有效省份
+     *   - 单位表有"浙江省"（省份有效） → "浙江省-杭州市"（使用省份+推导城市）
+     *   - 单位表有"未知"（省份无效） → 进入场景C
+     *
+     * 🎯 场景C：用户输入无效，上报单位表不存在或省份无效
+     *   - 单位不存在 → 智能推导完整省市
+     *   - 单位存在但省份无效 → 智能推导完整省市
+     *   - 推导失败 → "未知-未知"
+     *
+     * 🎯 场景D：级联更新触发
+     *   - 单位在本表已存在其他记录 → 更新所有相同单位记录为最终省市
+     *   - 单位在本表无其他记录 → 跳过级联更新
+     *
+     * 🎯 场景E：跨表同步触发
+     *   - 单位在网信表存在记录 → 同步省市信息到网信表
+     *   - 单位在网信表不存在记录 → 跳过跨表同步
+     *
+     * ==================== 同步机制说明 ====================
+     * 1. 本表级联更新：确保同一单位在data_content_asset表中省市一致
+     * 2. 上报单位表同步：更新单位表省份信息和dataContent状态位
+     * 3. 跨表同步：确保相同单位在cyber_asset表中省市一致
+     *
+     * 数据校验规则（按字段顺序）：
      * 1.1 主键：必填，数字字母组合，确保唯一性
      * 1.2 上报单位：必填字段
      * 1.3 分类编码与资产分类：必填，严格匹配预设映射关系
@@ -277,7 +303,9 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
      * 1.12 盘点单位：必填字段
 
      * 特殊处理逻辑：
-     * - 省市自动填充：根据上报单位名称自动推导省市信息
+     * - 省市智能处理：基于用户输入、单位表信息、智能推导的完整场景覆盖
+     * - 级联更新：确保同一单位在本表中所有记录省市一致
+     * - 跨表同步：确保相同单位在网信资产表中省市一致
      * - 金额字段：如果金额为空，且单价和实有数量都存在，则自动计算金额（单价×数量）
      * - 创建时间：系统自动生成当前时间
      * - 上报单位同步：使用填充后的省市信息同步到上报单位表
@@ -302,14 +330,15 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
     public void add(DataContentAsset asset) {
         log.info("开始新增数据内容资产，ID：{}", asset.getId());
 
-        // ==================== 1. 自动填充省市阶段 ====================
+        // ==================== 1. 智能省市处理阶段 ====================
+        log.debug("🌍 阶段1：开始智能省市处理");
 
-        // 1.1 自动填充省市信息（新增模式，尊重Excel原有值）
-        // 如果资产中已经填写了省市信息，则保留；如果为空，则根据单位名称自动推导
-        provinceAutoFillTool.fillAssetProvinceCity(asset, false);
-        log.debug("省市自动填充完成 - 省份：{}，城市：{}", asset.getProvince(), asset.getCity());
+        // 🎯 场景A/B/C：智能省市处理（完整场景覆盖）
+        handleProvinceCityForAdd(asset);
+        log.debug("✅ 智能省市处理完成 - 省份：{}，城市：{}", asset.getProvince(), asset.getCity());
 
         // ==================== 2. 数据校验阶段 ====================
+        log.debug("📋 阶段2：开始数据校验");
 
         // 2.1 主键校验：必填，数字字母组合，确保唯一
         validatePrimaryKey(asset);
@@ -338,16 +367,17 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         // 2.9 单价校验：可选，如果填写则必须非负
         validateUnitPrice(asset);
 
-        // 2.10 更新周期校验：可选，但如果有值必须是固定选项
+        // 2.10 更新周期校验：必须是固定选项
         validateUpdateCycle(asset);
 
-        // 2.11 更新方式校验：可选，但如果有值必须是固定选项
+        // 2.11 更新方式校验：必须是固定选项
         validateUpdateMethod(asset);
 
         // 2.12 盘点单位校验：必填
         validateInventoryUnit(asset);
 
         // ==================== 3. 数据处理阶段 ====================
+        log.debug("💰 阶段3：开始数据处理");
 
         // 3.1 系统自动生成创建时间
         asset.setCreateTime(LocalDateTime.now());
@@ -356,11 +386,13 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         calculateAmount(asset);
 
         // ==================== 4. 数据保存阶段 ====================
+        log.debug("💾 阶段4：开始数据保存");
 
         baseMapper.insert(asset);
         log.info("新增数据内容资产成功，ID：{}，资产名称：{}", asset.getId(), asset.getAssetName());
 
         // ==================== 5. 上报单位表同步阶段 ====================
+        log.debug("🔄 阶段5：开始上报单位表同步");
 
         // 5.1 上报单位表同步（单条新增场景）
         // 使用填充后的省市信息同步上报单位表，设置数据资产状态标志为1
@@ -370,7 +402,284 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
                 "dataContent",          // 资产类型：数据内容
                 false                   // isDelete=false：新增场景
         );
-        log.debug("数据内容资产新增完成，已同步上报单位表状态");
+        log.debug("✅ 上报单位表同步完成");
+
+        // ==================== 6. 级联更新阶段 ====================
+        log.debug("🔄 阶段6：开始级联更新检查");
+
+        // 🎯 场景D：级联更新处理
+        // 如果单位在本表已存在其他记录，更新这些记录的省市信息
+        handleCascadeUpdateForAdd(asset, asset.getReportUnit());
+
+        // ==================== 7. 跨表同步阶段 ====================
+        log.debug("🔄 阶段7：开始跨表同步决策");
+
+        // 🎯 场景E：跨表同步处理
+        // 如果单位在网信表存在记录，同步省市信息到网信表
+        handleCrossSyncForAdd(asset);
+
+        log.info("🎉 数据内容资产新增完整流程完成，ID：{}", asset.getId());
+    }
+
+// ==================== 新增的智能省市处理方法 ====================
+
+    /**
+     * 🎯 新增时的智能省市处理（完整场景覆盖）
+     *
+     * ==================== 场景决策流程图 ====================
+     *
+     * 开始
+     *   ↓
+     * 检查用户输入有效性
+     *   ↓
+     * 用户输入有效? ──是──→ 场景A：使用用户输入
+     *   ↓ 否
+     * 查询上报单位表
+     *   ↓
+     * 单位存在且省份有效? ──是──→ 场景B：使用单位表省份+推导城市
+     *   ↓ 否
+     * 场景C：智能推导完整省市
+     *   ↓
+     * 统一有效性处理（确保最终省市有效）
+     *   ↓
+     * 结束
+     *
+     * ==================== 场景详细说明 ====================
+     *
+     * 🎯 场景A：用户输入了有效省市（最高优先级）
+     *   - 条件：用户输入的省市都有效且逻辑一致
+     *   - 处理：直接使用用户输入，只进行标准化处理
+     *   - 示例：用户输入"江苏省-南京市" → 使用"江苏省-南京市"
+     *
+     * 🎯 场景B：上报单位表存在有效省份
+     *   - 条件：单位表中该单位存在且省份字段有效
+     *   - 处理：使用单位表省份，根据省份推导城市（使用省份首府）
+     *   - 示例：单位表有"浙江省" → 使用"浙江省-杭州市"
+     *   - 注意：上报单位表只存储省份，不存储城市
+     *
+     * 🎯 场景C：智能推导完整省市
+     *   - 条件：用户输入无效且单位表不存在或省份无效
+     *   - 处理：基于单位名称进行完整省市推导
+     *   - 示例：单位"某部队" → 推导为"江苏省-南京市"
+     *   - 兜底：推导失败时设为"未知-未知"
+     *
+     * @param asset 新增资产对象
+     */
+    private void handleProvinceCityForAdd(DataContentAsset asset) {
+        String userProvince = asset.getProvince();
+        String userCity = asset.getCity();
+        String reportUnit = asset.getReportUnit();
+
+        log.info("🤖 新增智能省市处理 - 单位: {}, 用户输入: {}-{}",
+                reportUnit, userProvince, userCity);
+
+        // 🎯 场景A：用户输入了有效省市 → 使用用户输入（最高优先级）
+        if (isProvinceValid(userProvince) && isCityValid(userCity) &&
+                isProvinceCityConsistent(userProvince, userCity)) {
+
+            log.info("🎯 场景A：用户输入有效省市，使用用户输入");
+            standardizeProvinceCity(asset);
+
+        } else {
+            // 🎯 查询上报单位表
+            ReportUnit existingUnit = reportUnitMapper.selectByReportUnitName(reportUnit);
+
+            if (existingUnit != null && isProvinceValid(existingUnit.getProvince())) {
+                // 🎯 场景B：上报单位存在且省份有效 → 使用单位表省份，推导城市
+                log.info("🎯 场景B：上报单位存在且省份有效，使用单位表省份");
+                useReportUnitProvince(asset, existingUnit);
+
+            } else {
+                // 🎯 场景C：单位不存在或省份无效 → 智能推导
+                log.info("🎯 场景C：单位不存在或省份无效，进行智能推导");
+                useToolToDeriveProvinceCity(asset, reportUnit);
+            }
+        }
+
+        log.info("✅ 新增省市处理完成 - 最终: {}-{}", asset.getProvince(), asset.getCity());
+    }
+
+    /**
+     * 🎯 使用上报单位表的省份信息
+     *
+     * ==================== 处理逻辑说明 ====================
+     *
+     * 🎯 场景B详细处理流程：
+     * 1. 从上报单位表获取省份信息
+     * 2. 使用该省份设置到当前资产
+     * 3. 根据省份推导城市信息（使用省份首府）
+     * 4. 确保省市信息的完整性和逻辑一致性
+     *
+     * @param asset 资产对象
+     * @param reportUnit 上报单位信息
+     */
+    private void useReportUnitProvince(DataContentAsset asset, ReportUnit reportUnit) {
+        String unitProvince = reportUnit.getProvince();
+
+        log.debug("📋 使用单位表省份信息：{}", unitProvince);
+
+        // 使用单位表的省份
+        asset.setProvince(unitProvince);
+
+        // 根据省份推导城市（使用省份首府）
+        try {
+            String capital = areaCacheTool.getCapitalByProvinceName(unitProvince);
+            if (StringUtils.hasText(capital) && !"未知".equals(capital)) {
+                asset.setCity(capital);
+                log.debug("✅ 根据省份推导城市成功: {} → {}", unitProvince, capital);
+            } else {
+                asset.setCity("未知");
+                log.warn("⚠️ 无法获取省份首府，城市设为未知: {}", unitProvince);
+            }
+        } catch (Exception e) {
+            log.error("❌ 获取首府失败，城市设为未知: {}", unitProvince, e);
+            asset.setCity("未知");
+        }
+    }
+
+// ==================== 新增的级联更新方法 ====================
+
+    /**
+     * 🎯 新增时的级联更新处理
+     *
+     * ==================== 场景D详细说明 ====================
+     *
+     * 🎯 触发条件：
+     *   - 该单位在 data_content_asset 表中已存在其他记录
+     *   - 新增记录的最终省市与现有记录不一致
+     *
+     * 🎯 不触发条件：
+     *   - 单位在本表无其他记录（首次使用该单位）
+     *   - 所有现有记录省市与新增记录一致
+     *
+     * 🎯 处理流程：
+     * 1. 查询本表中所有使用相同单位的记录
+     * 2. 逐条检查是否需要更新
+     * 3. 更新需要修改的记录
+     * 4. 记录详细的更新日志
+     *
+     * @param asset 新增资产对象（包含最终省市信息）
+     * @param unitName 单位名称
+     */
+    private void handleCascadeUpdateForAdd(DataContentAsset asset, String unitName) {
+        if (!StringUtils.hasText(unitName)) {
+            log.debug("⏭️ 场景D跳过：单位名称为空");
+            return;
+        }
+
+        try {
+            // 查询该单位在本表的所有记录
+            List<DataContentAsset> sameUnitAssets = baseMapper.selectByReportUnitExcludeId(unitName, asset.getId());
+
+            if (sameUnitAssets == null || sameUnitAssets.isEmpty()) {
+                log.debug("⏭️ 场景D跳过：单位[{}]在本表无其他记录", unitName);
+                return;
+            }
+
+            String finalProvince = asset.getProvince();
+            String finalCity = asset.getCity();
+
+            log.info("🎯 场景D触发：单位[{}]在本表存在{}条记录，开始级联更新",
+                    unitName, sameUnitAssets.size());
+
+            int updatedCount = 0;
+            int skippedCount = 0;
+
+            for (DataContentAsset existingAsset : sameUnitAssets) {
+                // 检查是否需要更新
+                boolean needsUpdate = !Objects.equals(existingAsset.getProvince(), finalProvince) ||
+                        !Objects.equals(existingAsset.getCity(), finalCity);
+
+                if (needsUpdate) {
+                    // 记录原始值
+                    String oldProvince = existingAsset.getProvince();
+                    String oldCity = existingAsset.getCity();
+
+                    // 更新记录
+                    existingAsset.setProvince(finalProvince);
+                    existingAsset.setCity(finalCity);
+                    existingAsset.setCreateTime(LocalDateTime.now());
+
+                    int count = baseMapper.updateById(existingAsset);
+                    if (count > 0) {
+                        updatedCount++;
+                        log.info("✅ 场景D更新成功：记录[{}] {}-{} → {}-{}",
+                                existingAsset.getId(), oldProvince, oldCity, finalProvince, finalCity);
+                    } else {
+                        log.warn("⚠️ 场景D更新失败：记录[{}]", existingAsset.getId());
+                    }
+                } else {
+                    skippedCount++;
+                    log.debug("⏭️ 场景D跳过：记录[{}]省市一致，无需更新", existingAsset.getId());
+                }
+            }
+
+            log.info("✅ 场景D完成：成功更新{}/{}条记录，跳过{}条记录",
+                    updatedCount, sameUnitAssets.size(), skippedCount);
+
+        } catch (Exception e) {
+            log.error("❌ 场景D失败：级联更新异常，单位[{}]", unitName, e);
+        }
+    }
+
+// ==================== 新增的跨表同步方法 ====================
+
+    /**
+     * 🎯 新增时的跨表同步决策
+     *
+     * ==================== 触发条件 ====================
+     * 1. 单位名称不为空
+     * 2. 单位在网信资产表中存在
+     *
+     * 🎯 无论省市是什么值，都进行同步
+     *
+     * @param asset 新增资产对象
+     */
+    private void handleCrossSyncForAdd(DataContentAsset asset) {
+        String unitName = asset.getReportUnit();
+        String province = asset.getProvince();
+        String city = asset.getCity();
+
+        // 检查基本条件
+        if (!StringUtils.hasText(unitName)) {
+            log.debug("⏭️ 场景E跳过：单位名称为空");
+            return;
+        }
+
+        try {
+            // 🎯 关键条件：检查单位在网信资产表中是否存在
+            boolean unitExistsInCyberTable = checkUnitExistsInCyberTable(unitName);
+            if (!unitExistsInCyberTable) {
+                log.debug("⏭️ 场景E跳过：单位[{}]在网信资产表中不存在", unitName);
+                return;
+            }
+
+            log.info("🎯 场景E触发：单位[{}]在网信表存在，开始跨表同步 → {}-{}", unitName, province, city);
+            syncToCyberTable(unitName, province, city);
+            log.info("✅ 场景E完成：跨表同步成功");
+
+        } catch (Exception e) {
+            log.error("❌ 场景E失败：跨表同步异常，单位[{}]", unitName, e);
+        }
+    }
+
+    /**
+     * 🎯 检查单位在网信资产表中是否存在
+     *
+     * @param unitName 单位名称
+     * @return 是否存在（true：存在，false：不存在或检查失败）
+     */
+    private boolean checkUnitExistsInCyberTable(String unitName) {
+        try {
+            // 使用网信资产Mapper查询该单位是否存在记录
+            Long count = cyberAssetMapper.countByReportUnit(unitName);
+            boolean exists = count != null && count > 0;
+            log.debug("🔍 单位存在性检查：[{}]在网信资产表中{}存在", unitName, exists ? "" : "不");
+            return exists;
+        } catch (Exception e) {
+            log.error("❌ 单位存在性检查失败，单位[{}]", unitName, e);
+            return false;
+        }
     }
 
 // ==================== 详细的校验方法 ====================
@@ -685,6 +994,9 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
      *
      * 场景9：省市信息不一致 → 市设为未知，省保留
      *
+     *
+     * 场景10：级联更新同一单位的其他记录
+     *
      * ==================== 8阶段处理流程 ====================
      * 阶段1：数据存在性校验 → 阶段2：智能省市处理 → 阶段3：业务数据校验
      * 阶段4：金额计算处理 → 阶段5：数据更新操作 → 阶段6：创建时间更新
@@ -836,6 +1148,19 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
                     reportUnitChanged, userModifiedProvinceCity || provinceCityActuallyChanged);
         } else {
             log.debug("⏭️ 未触发上报单位表同步 - 单位、省市和实际省市均未变化");
+        }
+
+        // ==================== 场景10：级联更新同一单位的其他记录 ====================
+        log.debug("🔄 [场景10] 开始检查级联更新");
+        if (reportUnitChanged || provinceCityActuallyChanged) {
+            log.info("🎯 场景10：检测到单位或省市变更，开始级联更新");
+
+            // 确定要更新的单位：如果单位变更则用新单位，否则用原单位
+            String unitToUpdate = reportUnitChanged ? newReportUnit : originalReportUnit;
+
+            handleCascadeUpdateForUnit(unitToUpdate, asset.getProvince(), asset.getCity(), asset.getId());
+        } else {
+            log.debug("⏭️ 场景10跳过：单位和省市均未变更");
         }
 
         // ==================== 阶段7：跨表同步决策与执行 ====================
@@ -1076,6 +1401,65 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
             log.warn("🎯 场景8C：省市都无效，都设为未知 - 省: {}, 市: {}", userProvince, userCity);
             asset.setProvince("未知");
             asset.setCity("未知");
+        }
+    }
+
+    /**
+     * 🎯 场景10：级联更新同一单位的其他记录
+     *
+     * 当修改某条记录的单位或省市信息时，同步更新本表中所有使用相同单位的其他记录，
+     * 确保同一单位在所有记录中的省市信息保持一致。
+     *
+     * @param unitName 要更新的单位名称
+     * @param newProvince 新的省份
+     * @param newCity 新的城市
+     * @param excludeId 要排除的记录ID（当前修改的记录）
+     */
+    private void handleCascadeUpdateForUnit(String unitName, String newProvince, String newCity, String excludeId) {
+        if (!StringUtils.hasText(unitName)) {
+            log.debug("⏭️ 场景10跳过：单位名称为空");
+            return;
+        }
+
+        try {
+            // 1. 查询相同单位的其他记录（排除当前记录）
+            List<DataContentAsset> sameUnitAssets = baseMapper.selectByReportUnitExcludeId(unitName, excludeId);
+
+            if (sameUnitAssets == null || sameUnitAssets.isEmpty()) {
+                log.debug("⏭️ 场景10跳过：单位[{}]没有其他记录需要更新", unitName);
+                return;
+            }
+
+            log.info("🎯 场景10：开始更新单位[{}]的{}条记录", unitName, sameUnitAssets.size());
+
+            // 2. 批量更新这些记录
+            int updatedCount = 0;
+            for (DataContentAsset asset : sameUnitAssets) {
+                // 记录原始值用于日志
+                String oldProvince = asset.getProvince();
+                String oldCity = asset.getCity();
+
+                // 检查是否需要更新（避免不必要的更新）
+                if (!Objects.equals(oldProvince, newProvince) || !Objects.equals(oldCity, newCity)) {
+                    // 更新省市字段
+                    asset.setProvince(newProvince);
+                    asset.setCity(newCity);
+                    // 5.1 更新创建时间为当前时间（作为最后修改时间的参考）
+                    asset.setCreateTime(LocalDateTime.now());
+
+                    int count = baseMapper.updateById(asset);
+                    if (count > 0) {
+                        updatedCount++;
+                        log.info("✅ 场景10：更新记录[{}] {}-{} → {}-{}",
+                                asset.getId(), oldProvince, oldCity, newProvince, newCity);
+                    }
+                }
+            }
+
+            log.info("✅ 场景10：完成级联更新，成功更新{}/{}条记录", updatedCount, sameUnitAssets.size());
+
+        } catch (Exception e) {
+            log.error("❌ 场景10：级联更新失败，单位[{}]", unitName, e);
         }
     }
 
@@ -1458,14 +1842,12 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
     }
 
     /**
-     * 🔍 跨表同步条件判断（精确优化版）
+     * 🔍 跨表同步条件判断（数据内容资产表 → 网信资产表）
      *
      * ==================== 触发条件 ====================
      * 条件1：省市必须发生改变（比较最终省市和原始省市）
-     * 条件2：单位必须在上报单位表中存在
+     * 条件2：单位在网信资产表中必须存在
      * 条件3：新单位名称不能为空
-     *
-     * 🆕 优化：使用更严格的比较，确保系统自动修正能正确触发同步
      *
      * @param newUnit 新单位名称
      * @param oldProvince 原始省份
@@ -1486,19 +1868,16 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
             return false;
         }
 
-        // 条件2：单位必须在上报单位表中存在
+        // 条件2：单位名称不能为空
         if (!StringUtils.hasText(newUnit)) {
             log.debug("⏭️ 跨表同步跳过：单位名称为空");
             return false;
         }
 
-        // 条件3：新单位名称不能为空
-        // 🔧 使用正确的 Mapper 方法查询上报单位
-        ReportUnit reportUnit = reportUnitMapper.selectByReportUnitName(newUnit);
-        boolean unitExists = reportUnit != null;
-
+        // 🎯 条件3：检查单位在网信资产表中是否存在
+        boolean unitExists = checkUnitExistsInCyberTable(newUnit);
         if (!unitExists) {
-            log.debug("⏭️ 跨表同步跳过：单位不存在 - {}", newUnit);
+            log.debug("⏭️ 跨表同步跳过：单位在网信资产表中不存在 - {}", newUnit);
             return false;
         }
 
@@ -1522,6 +1901,7 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
      */
     private void syncToCyberTable(String reportUnit, String province, String city) {
         try {
+            // 创建更新实体 - 无条件设置省市值
             CyberAsset updateEntity = new CyberAsset();
             updateEntity.setProvince(province);
             updateEntity.setCity(city);
@@ -1529,6 +1909,7 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
             QueryWrapper<CyberAsset> wrapper = new QueryWrapper<>();
             wrapper.eq("report_unit", reportUnit);
 
+            // 执行批量更新
             int updateCount = cyberAssetMapper.update(updateEntity, wrapper);
             log.info("✅ 跨表同步完成 - 网信表单位: {}, 更新记录数: {}, 新省市: {}-{}",
                     reportUnit, updateCount, province, city);
@@ -1555,17 +1936,21 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         String originalProvince = asset.getProvince();
         String originalCity = asset.getCity();
 
-        // 🆕 优化：分别标准化省份和城市
-        String standardizedProvince = standardizeProvinceName(originalProvince);
-        if (!originalProvince.equals(standardizedProvince)) {
-            log.debug("🏷️ 省份标准化: '{}' → '{}'", originalProvince, standardizedProvince);
-            asset.setProvince(standardizedProvince);
+        // 🆕 修复：安全比较，避免空指针
+        if (originalProvince != null) {
+            String standardizedProvince = standardizeProvinceName(originalProvince);
+            if (!Objects.equals(originalProvince, standardizedProvince)) {
+                log.debug("🏷️ 省份标准化: '{}' → '{}'", originalProvince, standardizedProvince);
+                asset.setProvince(standardizedProvince);
+            }
         }
 
-        String standardizedCity = standardizeCityName(originalCity);
-        if (!originalCity.equals(standardizedCity)) {
-            log.debug("🏷️ 城市标准化: '{}' → '{}'", originalCity, standardizedCity);
-            asset.setCity(standardizedCity);
+        if (originalCity != null) {
+            String standardizedCity = standardizeCityName(originalCity);
+            if (!Objects.equals(originalCity, standardizedCity)) {
+                log.debug("🏷️ 城市标准化: '{}' → '{}'", originalCity, standardizedCity);
+                asset.setCity(standardizedCity);
+            }
         }
     }
 
@@ -2004,6 +2389,67 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
     }
 
     @Override
+    public DataAssetReportUnitAnalysisVO analyzeReportUnitDomainAndCycle(String reportUnit) {
+        if (!StringUtils.hasText(reportUnit)) {
+            throw new IllegalArgumentException("上报单位不能为空");
+        }
+
+        long start = System.currentTimeMillis();
+
+        List<Map<String, Object>> fieldRows = dataContentAssetMapper.countApplicationFieldByReportUnit(reportUnit);
+        List<Map<String, Object>> cycleRows = dataContentAssetMapper.countUpdateCycleByReportUnit(reportUnit);
+
+        Map<String, Long> rawFieldCounts = fieldRows.stream()
+                .collect(Collectors.toMap(
+                        row -> (String) row.get("applicationField"),
+                        row -> ((Number) row.get("count")).longValue(),
+                        Long::sum,
+                        LinkedHashMap::new
+                ));
+
+        Map<String, Long> rawCycleCounts = cycleRows.stream()
+                .collect(Collectors.toMap(
+                        row -> (String) row.get("updateCycle"),
+                        row -> ((Number) row.get("count")).longValue(),
+                        Long::sum,
+                        LinkedHashMap::new
+                ));
+
+        Map<String, Long> applicationFieldCounts = DataAssetAnalysisFormulaUtils.normalizeCountMap(
+                DataAssetAnalysisFormulaUtils.STANDARD_APPLICATION_FIELDS, rawFieldCounts);
+        Map<String, Long> updateCycleCounts = DataAssetAnalysisFormulaUtils.normalizeCountMap(
+                DataAssetAnalysisFormulaUtils.STANDARD_UPDATE_CYCLES, rawCycleCounts);
+
+        Map<String, BigDecimal> applicationFieldRatios = DataAssetAnalysisFormulaUtils.calculateRatios(applicationFieldCounts);
+        Map<String, Long> categoryCounts = DataAssetAnalysisFormulaUtils.aggregateByFunctionCategory(applicationFieldCounts);
+        Map<String, BigDecimal> categoryRatios = DataAssetAnalysisFormulaUtils.calculateRatios(categoryCounts);
+        Map<String, BigDecimal> updateCycleRatios = DataAssetAnalysisFormulaUtils.calculateRatios(updateCycleCounts);
+
+        String functionCategory = DataAssetAnalysisFormulaUtils.determineFunctionCategory(categoryRatios);
+        List<String> imbalanceWarnings = DataAssetAnalysisFormulaUtils.detectImbalance(applicationFieldRatios, categoryRatios);
+
+        BigDecimal dependencyScore = DataAssetAnalysisFormulaUtils.calculateDependencyScore(updateCycleCounts);
+        String dependencyLevel = DataAssetAnalysisFormulaUtils.determineDependencyLevel(dependencyScore);
+        String updateRhythm = DataAssetAnalysisFormulaUtils.determineUpdateRhythm(updateCycleCounts);
+
+        DataAssetReportUnitAnalysisVO vo = new DataAssetReportUnitAnalysisVO();
+        vo.setReportUnit(reportUnit);
+        vo.setApplicationFieldCounts(applicationFieldCounts);
+        vo.setApplicationFieldRatios(applicationFieldRatios);
+        vo.setDomainCategoryCounts(categoryCounts);
+        vo.setDomainCategoryRatios(categoryRatios);
+        vo.setUpdateCycleCounts(updateCycleCounts);
+        vo.setUpdateCycleRatios(updateCycleRatios);
+        vo.setFunctionCategory(functionCategory);
+        vo.setImbalanceWarnings(imbalanceWarnings);
+        vo.setDependencyScore(dependencyScore);
+        vo.setDependencyLevel(dependencyLevel);
+        vo.setUpdateRhythmTendency(updateRhythm);
+
+        log.info("上报单位领域/周期分析完成 - 单位: {}, 耗时: {}ms", reportUnit, System.currentTimeMillis() - start);
+        return vo;
+    }
+    @Override
     public BigDecimal calculateProvinceInformationDegree(String province) {
         validateProvince(province);
         long totalQuantity = sumActualQuantity(
@@ -2217,6 +2663,25 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         }
     }
 
+    /**
+     * 批量保存数据内容资产并同步省市信息（导入专用-完整16种情况处理版）
+     *
+     * ==================== 核心特性 ====================
+     * ✅ 完整的16种输入情况覆盖
+     * ✅ 基于状态判断的精确处理逻辑
+     * ✅ 完全依赖单位名称智能推导，不查询空的上报单位表
+     * ✅ 确保数据完整性和同步正确性
+     *
+     * ==================== 16种情况处理逻辑 ====================
+     * 场景1：Excel省市都有效且一致 → 使用Excel值（标准化）
+     * 场景2：Excel省市都为空 → 单位推导
+     * 场景3：Excel省市部分有效 → 分别处理（12种子场景）
+     * 场景4：Excel省市都未知或都无效 → 省市都设为未知
+     * 场景5：Excel省市不一致 → 市设为未知，省保留
+     *
+     * @param assets 校验通过的数据内容资产列表
+     * @throws RuntimeException 当批量保存失败时抛出业务异常
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchSaveForImport(List<DataContentAsset> assets) {
@@ -2228,8 +2693,8 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         log.info("💾 开始批量保存数据内容资产并同步省市信息，共{}条数据", assets.size());
 
         try {
-            // 1. 批量处理省市信息
-            processProvinceCityForBatch(assets);
+            // 1. 批量智能处理省市信息（基于状态判断的完整场景覆盖）
+            processProvinceCityForBatchImport(assets);
 
             // 2. 批量保存到data_content_asset表
             boolean saveResult = saveBatch(assets);
@@ -2244,23 +2709,41 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
 
             log.info("📊 按单位分组完成，共{}个不同单位", unitGroupedAssets.size());
 
-            // 4. 批量同步上报单位表
+            // 4. 批量同步上报单位表（数据内容资产特殊处理：有省市字段）
             List<ProvinceAutoFillTool.UnitSyncRequest> syncRequests = new ArrayList<>();
             for (Map.Entry<String, List<DataContentAsset>> entry : unitGroupedAssets.entrySet()) {
                 String unitName = entry.getKey();
+                // 获取该单位的第一个资产的省市信息（相同单位的省市应该一致）
                 DataContentAsset firstAsset = entry.getValue().get(0);
                 syncRequests.add(new ProvinceAutoFillTool.UnitSyncRequest(
                         unitName,
-                        firstAsset.getProvince(),
-                        "dataContent",
-                        false
+                        firstAsset.getProvince(),  // 使用数据内容资产的省市信息
+                        "dataContent",             // 资产类型标识
+                        false                      // 新增模式
                 ));
             }
 
             // 执行批量同步
             provinceAutoFillTool.batchSyncReportUnits(syncRequests);
 
-            log.info("✅ 数据内容资产批量导入完成，省市信息同步完成，涉及{}个单位", unitGroupedAssets.size());
+            // 🆕 新增：无条件跨表同步到网信资产表
+            log.info("🔄 开始无条件跨表同步到网信资产表");
+            int crossSyncCount = 0;
+            for (Map.Entry<String, List<DataContentAsset>> entry : unitGroupedAssets.entrySet()) {
+                String unitName = entry.getKey();
+                DataContentAsset firstAsset = entry.getValue().get(0);
+                String province = firstAsset.getProvince();
+                String city = firstAsset.getCity();
+
+                // 🎯 无论省市是什么，只要网信表存在就同步
+                if (checkUnitExistsInCyberTable(unitName)) {
+                    syncToCyberTable(unitName, province, city);
+                    crossSyncCount++;
+                    log.debug("✅ 跨表同步完成 - 单位: {}, 省市: {}-{}", unitName, province, city);
+                }
+            }
+
+            log.info("🎉 数据内容资产批量导入完成，涉及{}个单位，跨表同步{}个单位", unitGroupedAssets.size(), crossSyncCount);
 
         } catch (Exception e) {
             log.error("❌ 批量保存数据内容资产失败: {}", e.getMessage(), e);
@@ -2268,20 +2751,423 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         }
     }
 
-    /**
-     * 批量处理省市信息（数据内容资产）- 最简版本
-     * 🎯 移除场景统计，专注于核心功能
-     */
-    private void processProvinceCityForBatch(List<DataContentAsset> assets) {
-        log.info("🔄 开始批量处理数据内容资产省市信息，共{}条数据", assets.size());
+    // ==================== 🆕 新增：导入专用枚举和状态方法 ====================
 
-        for (DataContentAsset asset : assets) {
-            // 直接调用自动填充逻辑
-            provinceAutoFillTool.fillAssetProvinceCity(asset, false);
+    /**
+     * 🎯 统一的状态判断方法（导入专用）
+     */
+    private enum FieldState {
+        EMPTY, UNKNOWN, VALID, INVALID
+    }
+
+    /**
+     * 🎯 处理场景枚举
+     */
+    private enum ProcessScene {
+        SCENE_1("Excel省市有效且一致"),
+        SCENE_2("Excel省市都为空"),
+        SCENE_3("Excel省市部分有效"),
+        SCENE_4("Excel省市都未知或都无效"),
+        SCENE_5("Excel省市不一致");
+
+        private final String description;
+
+        ProcessScene(String description) {
+            this.description = description;
         }
 
-        log.info("✅ 批量处理数据内容资产省市信息完成");
+        public String getDescription() {
+            return description;
+        }
     }
+
+    /**
+     * 🎯 获取省份状态（基于您现有的标准化方法）
+     */
+    private FieldState getProvinceState(String province) {
+        if (!StringUtils.hasText(province)) {
+            return FieldState.EMPTY;
+        }
+        if ("未知".equals(province)) {
+            return FieldState.UNKNOWN;
+        }
+        // 使用您现有的有效性检查方法
+        if (isProvinceValid(province)) {
+            return FieldState.VALID;
+        }
+        return FieldState.INVALID;
+    }
+
+    /**
+     * 🎯 获取城市状态（基于您现有的标准化方法）
+     */
+    private FieldState getCityState(String city) {
+        if (!StringUtils.hasText(city)) {
+            return FieldState.EMPTY;
+        }
+        if ("未知".equals(city)) {
+            return FieldState.UNKNOWN;
+        }
+        // 使用您现有的有效性检查方法
+        if (isCityValid(city)) {
+            return FieldState.VALID;
+        }
+        return FieldState.INVALID;
+    }
+
+    /**
+     * 🎯 批量处理省市信息（基于状态判断的完整16种情况处理）
+     *
+     * ==================== 核心特性 ====================
+     * ✅ 完整的16种输入情况覆盖
+     * ✅ 使用您现有的简写识别和标准化方法
+     * ✅ 基于状态判断的精确处理逻辑
+     * ✅ 确保除"未知"外的省市都经过标准化
+     *
+     * ==================== 处理流程 ====================
+     * 1. 标准化处理（使用您现有的standardizeProvinceCity方法）
+     * 2. 状态判断（区分空、未知、有效、无效）
+     * 3. 场景识别和处理（16种情况）
+     * 4. 结果标准化（确保输出格式统一）
+     */
+    private void processProvinceCityForBatchImport(List<DataContentAsset> assets) {
+        log.info("🔄 开始批量处理数据内容资产省市信息，共{}条数据", assets.size());
+
+        // 统计计数器
+        int scene1Count = 0, scene2Count = 0, scene3Count = 0,
+                scene4Count = 0, scene5Count = 0;
+
+        for (DataContentAsset asset : assets) {
+            String originalProvince = asset.getProvince();
+            String originalCity = asset.getCity();
+            String unitName = asset.getReportUnit();
+
+            // 🎯 第一步：使用您现有的标准化方法（包含简写识别）
+            standardizeProvinceCity(asset);
+
+            // 获取标准化后的值
+            String processedProvince = asset.getProvince();
+            String processedCity = asset.getCity();
+
+            // 🎯 第二步：状态判断
+            FieldState provinceState = getProvinceState(processedProvince);
+            FieldState cityState = getCityState(processedCity);
+
+            log.debug("🔍 状态判断 - 单位: {}, 省状态: {}, 市状态: {}",
+                    unitName, provinceState, cityState);
+
+            // 🎯 第三步：场景识别和处理
+            ProcessScene scene = identifyProcessScene(provinceState, cityState);
+
+            switch (scene) {
+                case SCENE_1:
+                    scene1Count++;
+                    handleScene1(asset, processedProvince, processedCity);
+                    break;
+                case SCENE_2:
+                    scene2Count++;
+                    handleScene2(asset, unitName);
+                    break;
+                case SCENE_3:
+                    scene3Count++;
+                    handleScene3(asset, provinceState, cityState, processedProvince, processedCity, unitName);
+                    break;
+                case SCENE_4:
+                    scene4Count++;
+                    handleScene4(asset);
+                    break;
+                case SCENE_5:
+                    scene5Count++;
+                    handleScene5(asset, processedProvince);
+                    break;
+            }
+
+            // 🎯 第四步：最终标准化（确保除"未知"外的值都标准化）
+            applyFinalStandardization(asset);
+        }
+
+        log.info("📊 数据内容资产批量省市处理统计 - 场景1: {}, 场景2: {}, 场景3: {}, 场景4: {}, 场景5: {}",
+                scene1Count, scene2Count, scene3Count, scene4Count, scene5Count);
+    }
+
+    /**
+     * 🎯 场景识别方法
+     */
+    private ProcessScene identifyProcessScene(FieldState provinceState, FieldState cityState) {
+        // 场景2：都为空
+        if (provinceState == FieldState.EMPTY && cityState == FieldState.EMPTY) {
+            return ProcessScene.SCENE_2;
+        }
+
+        // 场景4：都未知或都无效
+        if ((provinceState == FieldState.UNKNOWN && cityState == FieldState.UNKNOWN) ||
+                (provinceState == FieldState.INVALID && cityState == FieldState.INVALID)) {
+            return ProcessScene.SCENE_4;
+        }
+
+        // 场景1：都有效且一致（需要进一步检查一致性）
+        if (provinceState == FieldState.VALID && cityState == FieldState.VALID) {
+            return ProcessScene.SCENE_1; // 一致性检查在handleScene1中处理
+        }
+
+        // 场景5：都有效但不一致
+        if (provinceState == FieldState.VALID && cityState == FieldState.VALID) {
+            return ProcessScene.SCENE_5; // 实际不会执行到这里，因为上面已经返回SCENE_1
+        }
+
+        // 场景3：其他所有情况
+        return ProcessScene.SCENE_3;
+    }
+
+    // ==================== 🆕 新增：各场景处理方法 ====================
+
+    /**
+     * 🎯 场景1：Excel省市都有效且一致 → 使用Excel值（标准化）
+     */
+    private void handleScene1(DataContentAsset asset, String province, String city) {
+        log.debug("✅ 场景1 - Excel省市有效且一致: {}-{}", province, city);
+
+        // 检查一致性
+        if (!isProvinceCityConsistent(province, city)) {
+            // 如果不一致，转为场景5处理
+            log.debug("⚠️ 场景1转为场景5：省市不一致");
+            handleScene5(asset, province);
+            return;
+        }
+
+        // 都有效且一致，直接使用标准化后的值（不需要额外处理）
+        log.debug("✅ 场景1完成 - 使用标准化值: {}-{}", province, city);
+    }
+
+    /**
+     * 🎯 场景2：Excel省市都为空 → 单位推导
+     */
+    private void handleScene2(DataContentAsset asset, String unitName) {
+        log.debug("🔍 场景2 - Excel省市都为空，单位推导: {}", unitName);
+        useToolToDeriveProvinceCity(asset, unitName);
+    }
+
+    /**
+     * 🎯 场景4：Excel省市都未知或都无效 → 省市都设为未知
+     */
+    private void handleScene4(DataContentAsset asset) {
+        log.debug("❌ 场景4 - Excel省市都未知或都无效，设为未知");
+        asset.setProvince("未知");
+        asset.setCity("未知");
+    }
+
+    /**
+     * 🎯 场景5：Excel省市不一致 → 市设为未知，省保留
+     */
+    private void handleScene5(DataContentAsset asset, String province) {
+        log.debug("⚠️ 场景5 - Excel省市不一致，市设为未知，省保留: {}", province);
+        asset.setProvince(province); // 保留省
+        asset.setCity("未知"); // 市设为未知
+    }
+
+    /**
+     * 🎯 场景3：Excel省市部分有效（完整12种情况处理）
+     */
+    private void handleScene3(DataContentAsset asset, FieldState provinceState, FieldState cityState,
+                              String processedProvince, String processedCity, String unitName) {
+        log.debug("🔧 场景3处理 - 省状态: {}, 市状态: {}", provinceState, cityState);
+
+        // 🎯 情况3：空-有效 → 用有效的市推导省
+        if (provinceState == FieldState.EMPTY && cityState == FieldState.VALID) {
+            log.debug("🎯 情况3 - 空-有效 → 用有效的市推导省: {}", processedCity);
+            String derivedProvince = deriveProvinceFromCity(processedCity);
+            if (derivedProvince != null && !"未知".equals(derivedProvince)) {
+                asset.setProvince(derivedProvince);
+                asset.setCity(processedCity);
+                log.debug("✅ 推导成功: {} → {}", processedCity, derivedProvince);
+            } else {
+                // 推导失败，使用单位推导
+                useToolToDeriveProvinceCity(asset, unitName);
+            }
+            return;
+        }
+
+        // 🎯 情况4：空-无效 → 单位推导省，市设为未知
+        if (provinceState == FieldState.EMPTY && cityState == FieldState.INVALID) {
+            log.debug("🎯 情况4 - 空-无效 → 单位推导省，市设为未知");
+            useToolToDeriveProvince(asset, unitName);
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况5：未知-空 → 省为未知，市也为未知
+        if (provinceState == FieldState.UNKNOWN && cityState == FieldState.EMPTY) {
+            log.debug("🎯 情况5 - 未知-空 → 省为未知，市也为未知");
+            asset.setProvince("未知");
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况8：未知-无效 → 市无效直接设为未知
+        if (provinceState == FieldState.UNKNOWN && cityState == FieldState.INVALID) {
+            log.debug("🎯 情况8 - 未知-无效 → 市无效直接设为未知");
+            asset.setProvince("未知");
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况9：有效-空 → 省有效，市填该省首府
+        if (provinceState == FieldState.VALID && cityState == FieldState.EMPTY) {
+            log.debug("🎯 情况9 - 有效-空 → 省有效，市填该省首府: {}", processedProvince);
+            String capital = getCapitalByProvince(processedProvince);
+            if (capital != null && !"未知".equals(capital)) {
+                asset.setProvince(processedProvince);
+                asset.setCity(capital);
+                log.debug("✅ 设置首府成功: {} → {}", processedProvince, capital);
+            } else {
+                asset.setProvince(processedProvince);
+                asset.setCity("未知");
+                log.debug("❌ 获取首府失败，市设为未知");
+            }
+            return;
+        }
+
+        // 🎯 情况13：无效-空 → 省无效为未知，市也为未知
+        if (provinceState == FieldState.INVALID && cityState == FieldState.EMPTY) {
+            log.debug("🎯 情况13 - 无效-空 → 省无效为未知，市也为未知");
+            asset.setProvince("未知");
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况14：无效-未知 → 省无效为未知，市也为未知
+        if (provinceState == FieldState.INVALID && cityState == FieldState.UNKNOWN) {
+            log.debug("🎯 情况14 - 无效-未知 → 省无效为未知，市也为未知");
+            asset.setProvince("未知");
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 其他情况处理
+        handleOtherScene3Cases(asset, provinceState, cityState, processedProvince, processedCity, unitName);
+    }
+
+    /**
+     * 🎯 场景3的其他情况处理
+     */
+    private void handleOtherScene3Cases(DataContentAsset asset, FieldState provinceState, FieldState cityState,
+                                        String processedProvince, String processedCity, String unitName) {
+        // 🎯 情况2：空-未知 → 单位推导省，市保留未知
+        if (provinceState == FieldState.EMPTY && cityState == FieldState.UNKNOWN) {
+            log.debug("🎯 情况2 - 空-未知 → 单位推导省，市保留未知");
+            useToolToDeriveProvince(asset, unitName);
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况7：未知-有效 → 用有效的市推导省
+        if (provinceState == FieldState.UNKNOWN && cityState == FieldState.VALID) {
+            log.debug("🎯 情况7 - 未知-有效 → 用有效的市推导省: {}", processedCity);
+            String derivedProvince = deriveProvinceFromCity(processedCity);
+            if (derivedProvince != null && !"未知".equals(derivedProvince)) {
+                asset.setProvince(derivedProvince);
+                asset.setCity(processedCity);
+                log.debug("✅ 推导成功: {} → {}", processedCity, derivedProvince);
+            } else {
+                asset.setProvince("未知");
+                asset.setCity("未知");
+            }
+            return;
+        }
+
+        // 🎯 情况10：有效-未知 → 省保留，市保留未知
+        if (provinceState == FieldState.VALID && cityState == FieldState.UNKNOWN) {
+            log.debug("🎯 情况10 - 有效-未知 → 省保留，市保留未知: {}", processedProvince);
+            asset.setProvince(processedProvince);
+            asset.setCity("未知");
+            return;
+        }
+
+        // 🎯 情况15：无效-有效 → 用有效的市推导省
+        if (provinceState == FieldState.INVALID && cityState == FieldState.VALID) {
+            log.debug("🎯 情况15 - 无效-有效 → 用有效的市推导省: {}", processedCity);
+            String derivedProvince = deriveProvinceFromCity(processedCity);
+            if (derivedProvince != null && !"未知".equals(derivedProvince)) {
+                asset.setProvince(derivedProvince);
+                asset.setCity(processedCity);
+                log.debug("✅ 推导成功: {} → {}", processedCity, derivedProvince);
+            } else {
+                asset.setProvince("未知");
+                asset.setCity("未知");
+            }
+            return;
+        }
+
+        // 🎯 情况6：未知-未知 → 保留未知（理论上不会到这里，因为被场景4处理）
+        if (provinceState == FieldState.UNKNOWN && cityState == FieldState.UNKNOWN) {
+            log.debug("🎯 情况6 - 未知-未知 → 保留未知");
+            // 不需要处理，保持原样
+            return;
+        }
+
+        // 🎯 默认情况：单位推导
+        log.debug("🔍 场景3默认情况 → 单位推导");
+        useToolToDeriveProvinceCity(asset, unitName);
+    }
+
+    // ==================== 🆕 新增：导入专用辅助方法 ====================
+
+    /**
+     * 🎯 仅推导省份（保持城市不变）
+     */
+    private void useToolToDeriveProvince(DataContentAsset asset, String unitName) {
+        String originalCity = asset.getCity();
+
+        HasReportUnitAndProvince tempAsset = new HasReportUnitAndProvince() {
+            @Override public String getReportUnit() { return unitName; }
+            @Override public String getProvince() { return asset.getProvince(); }
+            @Override public void setProvince(String province) { asset.setProvince(province); }
+            @Override public String getCity() { return originalCity; }
+            @Override public void setCity(String city) { /* 不设置城市 */ }
+        };
+
+        provinceAutoFillTool.fillAssetProvinceCity(tempAsset, false);
+        log.debug("🤖 仅推导省份完成 - 单位: {}, 省份: {}", unitName, asset.getProvince());
+    }
+
+    /**
+     * 🎯 根据省份获取首府城市（使用您现有的AreaCacheTool）
+     */
+    private String getCapitalByProvince(String province) {
+        try {
+            String standardizedProvince = standardizeProvinceName(province);
+            String capital = areaCacheTool.getCapitalByProvinceName(standardizedProvince);
+            if (StringUtils.hasText(capital) && !"未知".equals(capital)) {
+                return capital;
+            }
+        } catch (Exception e) {
+            log.error("❌ 获取省份首府失败: {}", province, e);
+        }
+        return "未知";
+    }
+
+    /**
+     * 🎯 最终标准化处理（确保除"未知"外的值都标准化）
+     */
+    private void applyFinalStandardization(DataContentAsset asset) {
+        // 只有非"未知"的值才需要标准化
+        if (!"未知".equals(asset.getProvince())) {
+            String standardizedProvince = standardizeProvinceName(asset.getProvince());
+            if (!Objects.equals(asset.getProvince(), standardizedProvince)) {
+                log.debug("🏷️ 最终省份标准化: '{}' → '{}'", asset.getProvince(), standardizedProvince);
+                asset.setProvince(standardizedProvince);
+            }
+        }
+
+        if (!"未知".equals(asset.getCity())) {
+            String standardizedCity = standardizeCityName(asset.getCity());
+            if (!Objects.equals(asset.getCity(), standardizedCity)) {
+                log.debug("🏷️ 最终城市标准化: '{}' → '{}'", asset.getCity(), standardizedCity);
+                asset.setCity(standardizedCity);
+            }
+        }
+    }
+
 
     /**
      * 数据资产导出查询方法实现

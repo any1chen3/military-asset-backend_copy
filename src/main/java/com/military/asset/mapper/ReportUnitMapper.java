@@ -15,6 +15,10 @@ public interface ReportUnitMapper extends BaseMapper<ReportUnit> {
     // 1. 根据上报单位名称查询（判断是否已存在）
     ReportUnit selectByReportUnitName(@Param("reportUnit") String reportUnit);
 
+    // 🆕 新增：根据上报单位名称列表批量查询
+    List<ReportUnit> selectByReportUnitNames(@Param("unitNames") List<String> unitNames);
+
+
     // 2. 统计软件资产表中该单位的记录数（删除时判断用）
     long countSoftwareAsset(@Param("reportUnit") String reportUnit);
 

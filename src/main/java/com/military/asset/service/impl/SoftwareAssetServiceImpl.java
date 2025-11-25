@@ -7,14 +7,12 @@ import com.military.asset.service.SoftwareAssetService;
 import com.military.asset.utils.CategoryMapUtils;
 import com.military.asset.utils.ProvinceAutoFillTool; // 新增：导入同步工具（仅用于上报单位同步）
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page; // 新增：导入Page类
-import com.military.asset.vo.ExcelErrorVO;
+import com.military.asset.utils.ReportUnitImportanceUtils;
+import com.military.asset.utils.SoftwareUpgradeFormulaUtils;
+import com.military.asset.vo.*;
 import com.military.asset.vo.excel.SoftwareAssetExcelVO;
 import com.military.asset.vo.stat.SoftwareAssetStatisticRow;
 import com.military.asset.vo.stat.SoftwareAssetStatisticVO;
-import com.military.asset.vo.ReportUnitImportanceVO;
-import com.military.asset.vo.SoftwareRecommendationUpdateItem;
-import com.military.asset.vo.SoftwareUpgradeEvaluationRequest;
-import com.military.asset.vo.SoftwareUpgradeRecommendationVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -22,26 +20,22 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import jakarta.annotation.Resource;// 新增：资源注入注解
 
-import java.util.Objects;
-import java.util.Arrays;
+import java.util.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import com.military.asset.utils.SoftwareUpgradeFormulaUtils;
-import com.military.asset.utils.ReportUnitImportanceUtils;
 
 //导出功能依赖
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 // 接口6(c)用
 import org.springframework.beans.factory.annotation.Autowired;
+
+// ==================== 新增导入 ====================
+import com.military.asset.entity.ReportUnit;
+import com.military.asset.mapper.ReportUnitMapper;
+import com.military.asset.entity.HasReportUnitAndProvince;
 
 
 /**
@@ -88,6 +82,15 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
      */
     @Resource
     private ProvinceAutoFillTool provinceAutoFillTool;
+
+    // ==================== 依赖注入区域 ====================
+
+    /**
+     * 上报单位表Mapper：用于检查单位存在性和同步操作
+     * 软件资产表虽然没有省市字段，但需要与上报单位表同步状态
+     */
+    @Resource
+    private ReportUnitMapper reportUnitMapper;
 
     // ============================ 新增方法实现 ============================
 
@@ -139,7 +142,6 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
         }
 
         List<SoftwareUpgradeRecommendationVO> results = new ArrayList<>(assets.size());
-        List<SoftwareRecommendationUpdateItem> updateItems = new ArrayList<>(assets.size());
 
         for (SoftwareAsset asset : assets) {
             SoftwareUpgradeEvaluationRequest derived = SoftwareUpgradeFormulaUtils.deriveEvaluationFromAsset(asset);
@@ -161,15 +163,6 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             vo.setRecommendation(recommendation);
             results.add(vo);
 
-            updateItems.add(new SoftwareRecommendationUpdateItem(asset.getId(), recommendation));
-        }
-
-        boolean hasRecommendationColumn = softwareAssetMapper.hasRecommendationColumn();
-
-        if (!updateItems.isEmpty() && hasRecommendationColumn) {
-            softwareAssetMapper.batchUpdateRecommendations(updateItems);
-        } else if (!hasRecommendationColumn) {
-            log.warn("软件资产表缺少 recommendation 列，跳过升级建议批量写回，仅返回计算结果");
         }
 
         return results;
@@ -187,21 +180,29 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             throw new IllegalArgumentException("指定上报单位下未找到任何软件资产");
         }
 
-        List<BigDecimal> scores = new ArrayList<>(assets.size());
-        for (SoftwareAsset asset : assets) {
-            scores.add(ReportUnitImportanceUtils.deriveScoreFromAsset(asset));
-        }
 
-        BigDecimal avgScore = ReportUnitImportanceUtils.averageScore(scores);
-        String level = ReportUnitImportanceUtils.importanceLevel(avgScore);
-        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, avgScore, level, assets.size());
+        Map<String, Long> deploymentScopeStats = assets.stream()
+                .collect(Collectors.groupingBy(asset -> {
+                    String scope = asset.getDeploymentScope();
+                    return StringUtils.hasText(scope) ? scope : "未填部署范围";
+                }, LinkedHashMap::new, Collectors.summingLong(asset -> Optional
+                        .ofNullable(asset.getActualQuantity())
+                        .orElse(0))));
+
+        long totalQuantity = deploymentScopeStats.values().stream().mapToLong(Long::longValue).sum();
+
+        BigDecimal totalScore = ReportUnitImportanceUtils.calculateImportanceScore(deploymentScopeStats);
+        long effectiveScopeCount = deploymentScopeStats.values().stream().filter(count -> count > 0).count();
+        String level = ReportUnitImportanceUtils.importanceLevel(totalScore, (int) effectiveScopeCount);
+        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, totalScore, level, totalQuantity);
 
         ReportUnitImportanceVO vo = new ReportUnitImportanceVO();
         vo.setReportUnit(reportUnit);
-        vo.setAssetCount(assets.size());
-        vo.setImportanceScore(avgScore);
+        vo.setAssetCount(totalQuantity);
+        vo.setImportanceScore(totalScore);
         vo.setImportanceLevel(level);
         vo.setAdvice(advice);
+        vo.setDeploymentScopeStats(deploymentScopeStats);
 
         return Collections.singletonList(vo);
     }
@@ -436,14 +437,44 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
 
         // ==================== 4. 上报单位表同步阶段 ====================
 
-        // 4.1 上报单位表同步（单条新增场景）
-        provinceAutoFillTool.syncReportUnit(
-                asset.getReportUnit(),  // 上报单位名称
-                null,                   // 软件资产无省份字段，传null
-                "software",             // 资产类型：软件
-                false                   // isDelete=false：新增场景
-        );
-        log.debug("软件资产新增完成，已同步上报单位表状态");
+        // 4.1 🎯 优化：检查上报单位表是否存在，不存在才同步
+        String unitName = asset.getReportUnit();
+        boolean unitExists = checkReportUnitExistence(unitName);
+
+        if (!unitExists) {
+            // 🎯 单位不存在 → 推导省市并新增
+            String derivedProvince = deriveProvinceFromUnit(unitName);
+            provinceAutoFillTool.syncReportUnit(
+                    unitName,           // 上报单位名称
+                    derivedProvince,    // 推导出的省份
+                    "software",         // 资产类型：软件
+                    false               // isDelete=false：新增场景
+            );
+            log.debug("🎯 软件资产新增 - 单位[{}]不存在，已推导省市并新增", unitName);
+        } else {
+            // 🎯 单位已存在 → 不操作（保持现有省市）
+            log.debug("⏭️ 软件资产新增 - 单位[{}]已存在，跳过省市推导", unitName);
+        }
+    }
+
+    /**
+     * 🎯 检查上报单位表是否存在指定单位
+     *
+     * @param unitName 单位名称
+     * @return 是否存在（true：存在，false：不存在）
+     */
+    private boolean checkReportUnitExistence(String unitName) {
+        if (!StringUtils.hasText(unitName)) {
+            return false;
+        }
+
+        try {
+            ReportUnit reportUnit = reportUnitMapper.selectByReportUnitName(unitName);
+            return reportUnit != null;
+        } catch (Exception e) {
+            log.error("❌ 检查上报单位存在性失败，单位[{}]", unitName, e);
+            return false;
+        }
     }
 
 // ==================== 详细的校验方法 ====================
@@ -1140,21 +1171,22 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
     }
 
     /**
-     * 批量保存软件资产并同步省市信息（导入专用）
-     * 🎯 与普通批量保存的区别：
-     * 1. 软件资产表没有省市字段，但需要推导省市信息用于上报单位表
-     * 2. 批量同步上报单位表状态
-     * 3. 不检查数据重复（因为表已清空）
-
-     * 💡 软件资产特殊处理：
-     * - 软件资产表没有省市字段，所有省市信息通过上报单位表管理
-     * - 根据单位名称批量推导省市信息
-     * - 批量更新上报单位表的省市字段和软件状态标志
-
-     * 🔧 性能优化：
-     * - 按单位名称分组，相同单位只推导一次
-     * - 批量更新上报单位表，减少数据库操作
-     * - 使用事务确保数据一致性
+     * 批量保存软件资产并同步省市信息（导入专用-优化版）
+     *
+     * ==================== 核心逻辑 ====================
+     * 🎯 软件表特殊处理（无省市字段）：
+     * 1. 如果上报单位表已存在该单位 → 不操作（保持现有省市）
+     * 2. 如果上报单位表不存在该单位 → 通过单位推导省市，新增到上报单位表
+     *
+     * 💡 设计优势：
+     * - 避免覆盖网信表和数据内容表已存在的准确省市信息
+     * - 确保三个表的上报单位省市一致性
+     * - 软件表作为"补充者"，不干扰已有省市数据
+     *
+     * 🔧 技术实现：
+     * - 使用现有的 ProvinceAutoFillTool 进行省市推导
+     * - 批量检查上报单位表存在性，避免重复查询
+     * - 只同步不存在的单位，提高性能
      *
      * @param assets 校验通过的软件资产列表
      * @throws RuntimeException 当批量保存失败时抛出
@@ -1170,45 +1202,175 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
         log.info("💾 开始批量保存软件资产并同步省市信息，共{}条数据", assets.size());
 
         try {
-            // 1. 软件资产需要调用自动填充推导省市信息（虽然表没有省市字段，但上报单位表需要）
-            for (SoftwareAsset asset : assets) {
-                provinceAutoFillTool.fillAssetProvinceCity(asset, false);
-            }
-
-            // 2. 批量保存到software_asset表
+            // 1. 批量保存到software_asset表
             boolean saveResult = saveBatch(assets);
             if (!saveResult) {
                 throw new RuntimeException("批量保存软件资产失败");
             }
             log.info("✅ 批量保存软件资产成功，共{}条", assets.size());
 
-            // 3. 按上报单位分组，用于批量同步
+            // 2. 按上报单位分组，用于批量同步
             Map<String, List<SoftwareAsset>> unitGroupedAssets = assets.stream()
                     .collect(Collectors.groupingBy(SoftwareAsset::getReportUnit));
 
             log.info("📊 按单位分组完成，共{}个不同单位", unitGroupedAssets.size());
 
-            // 4. 批量同步上报单位表
+            // 3. 🎯 优化：批量检查上报单位表存在性，避免重复查询
+            List<String> existingUnits = batchCheckReportUnitExistence(unitGroupedAssets.keySet());
+
+            // 4. 只同步不存在的单位
             List<ProvinceAutoFillTool.UnitSyncRequest> syncRequests = new ArrayList<>();
+            int newUnitCount = 0;
+            int existingUnitCount = 0;
+
             for (Map.Entry<String, List<SoftwareAsset>> entry : unitGroupedAssets.entrySet()) {
                 String unitName = entry.getKey();
-                SoftwareAsset firstAsset = entry.getValue().get(0);
-                syncRequests.add(new ProvinceAutoFillTool.UnitSyncRequest(
-                        unitName,
-                        firstAsset.getProvince(),  // 使用自动填充推导出的省份
-                        "software",
-                        false
-                ));
+
+                if (existingUnits.contains(unitName)) {
+                    // 🎯 单位已存在 → 不操作（保持现有省市）
+                    existingUnitCount++;
+//                    log.debug("⏭️ 单位[{}]已存在上报单位表，跳过省市推导", unitName);
+                } else {
+                    // 🎯 单位不存在 → 推导省市并新增
+                    newUnitCount++;
+                    String derivedProvince = deriveProvinceFromUnit(unitName);
+                    syncRequests.add(new ProvinceAutoFillTool.UnitSyncRequest(
+                            unitName,
+                            derivedProvince,  // 使用推导出的省份
+                            "software",
+                            false
+                    ));
+                    log.debug("🎯 单位[{}]不存在，推导省市: {}", unitName, derivedProvince);
+                }
             }
 
-            // 执行批量同步
-            provinceAutoFillTool.batchSyncReportUnits(syncRequests);
-
-            log.info("✅ 软件资产批量导入完成，省市信息同步完成，涉及{}个单位", unitGroupedAssets.size());
+            // 5. 执行批量同步（只同步新单位）
+            if (!syncRequests.isEmpty()) {
+                provinceAutoFillTool.batchSyncReportUnits(syncRequests);
+                log.info("✅ 软件资产批量导入完成 - 新增{}个单位，跳过{}个已存在单位",
+                        newUnitCount, existingUnitCount);
+            } else {
+                log.info("✅ 软件资产批量导入完成 - 所有单位已存在，无需新增");
+            }
 
         } catch (Exception e) {
             log.error("❌ 批量保存软件资产失败: {}", e.getMessage(), e);
             throw new RuntimeException("批量保存软件资产失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 🎯 批量检查上报单位表存在性（优化性能）
+     *
+     * ==================== 方法说明 ====================
+     * 批量查询上报单位表，检查哪些单位已存在，避免在循环中重复查询数据库
+     *
+     * 💡 性能优化：
+     * - 1次批量查询替代N次单条查询
+     * - 使用Set.contains()实现O(1)的查找性能
+     * - 减少数据库连接开销
+     *
+     * @param unitNames 单位名称集合
+     * @return 已存在的单位名称列表
+     */
+    private List<String> batchCheckReportUnitExistence(Set<String> unitNames) {
+        if (unitNames == null || unitNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        try {
+            // 🎯 使用现有的上报单位Mapper批量查询
+            // 🆕 修复：转换为List
+            List<String> unitNameList = new ArrayList<>(unitNames);
+            List<ReportUnit> existingReportUnits = reportUnitMapper.selectByReportUnitNames(unitNameList);
+
+            // 提取已存在的单位名称
+            List<String> existingUnitNames = existingReportUnits.stream()
+                    .map(ReportUnit::getReportUnit)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            log.debug("🔍 批量检查上报单位存在性 - 查询{}个单位，存在{}个",
+                    unitNames.size(), existingUnitNames.size());
+
+            return existingUnitNames;
+
+        } catch (Exception e) {
+            log.error("❌ 批量检查上报单位存在性失败", e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 🎯 根据单位名称推导省市信息
+     *
+     * ==================== 方法说明 ====================
+     * 使用现有的 ProvinceAutoFillTool 根据单位名称智能推导省市
+     * 软件表没有省市字段，但上报单位表需要省市信息
+     *
+     * 💡 推导逻辑：
+     * - 使用工具类现有的智能推导算法
+     * - 优先返回推导出的省份，城市信息不保存（软件表不需要）
+     * - 推导失败返回"未知"
+     *
+     * @param unitName 单位名称
+     * @return 推导出的省份名称（如"北京市"、"广东省"、"未知"）
+     */
+    private String deriveProvinceFromUnit(String unitName) {
+        if (!StringUtils.hasText(unitName)) {
+            log.warn("⚠️ 单位名称为空，无法推导省市");
+            return "未知";
+        }
+
+        try {
+            // 🎯 使用现有的工具类进行省市推导
+            // 创建临时对象实现 HasReportUnitAndProvince 接口
+            HasReportUnitAndProvince tempAsset = new HasReportUnitAndProvince() {
+                private String province;
+                private String city;
+
+                @Override
+                public String getReportUnit() {
+                    return unitName;
+                }
+
+                @Override
+                public String getProvince() {
+                    return this.province;
+                }
+
+                @Override
+                public void setProvince(String province) {
+                    this.province = province;
+                }
+
+                @Override
+                public String getCity() {
+                    return this.city;
+                }
+
+                @Override
+                public void setCity(String city) {
+                    this.city = city;
+                }
+            };
+
+            // 🎯 调用现有的自动填充工具进行省市推导
+            provinceAutoFillTool.fillAssetProvinceCity(tempAsset, false);
+
+            String derivedProvince = tempAsset.getProvince();
+
+            if (StringUtils.hasText(derivedProvince) && !"未知".equals(derivedProvince)) {
+                log.debug("✅ 单位[{}]推导省市成功: {}", unitName, derivedProvince);
+                return derivedProvince;
+            } else {
+                log.warn("⚠️ 单位[{}]推导省市失败，返回未知", unitName);
+                return "未知";
+            }
+
+        } catch (Exception e) {
+            log.error("❌ 单位[{}]推导省市异常", unitName, e);
+            return "未知";
         }
     }
 

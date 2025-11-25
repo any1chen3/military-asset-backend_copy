@@ -115,4 +115,22 @@
         FROM report_unit
         WHERE province = #{province}
     </select>
+
+    <!-- 🆕 新增：根据上报单位名称列表批量查询 -->
+    <select id="selectByReportUnitNames" resultType="com.military.asset.entity.ReportUnit">
+        SELECT
+        id,
+        report_unit as reportUnit,
+        province,
+        source_table_cyber_asset as sourceTableCyberAsset,
+        source_table_data_content_asset as sourceTableDataContentAsset,
+        source_table_software_asset as sourceTableSoftwareAsset
+        FROM report_unit
+        WHERE report_unit IN
+        <foreach collection="unitNames" item="unitName" open="(" separator="," close=")">
+            #{unitName}
+        </foreach>
+        ORDER BY report_unit
+    </select>
+
 </mapper>

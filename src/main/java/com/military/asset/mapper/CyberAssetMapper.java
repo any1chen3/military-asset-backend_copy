@@ -185,4 +185,25 @@ public interface CyberAssetMapper extends BaseMapper<CyberAsset> {
      */
     List<Map<String, Object>> sumPhoneNumberQuantityByCategory(@Param("reportUnit") String reportUnit,
                                                                @Param("categories") List<String> categories);
+
+    // ==================== 新增：支持级联更新和跨表同步的方法 ====================
+
+    /**
+     * 根据上报单位查询所有相关记录（排除指定ID）
+     *
+     * @param unitName 单位名称
+     * @param excludeId 要排除的记录ID
+     * @return 相关记录列表（排除指定ID）
+     */
+    @Select("SELECT * FROM cyber_asset WHERE report_unit = #{unitName} AND id != #{excludeId} AND delete_flag = 0")
+    List<CyberAsset> selectByReportUnitExcludeId(@Param("unitName") String unitName, @Param("excludeId") String excludeId);
+
+    /**
+     * 根据上报单位统计记录数量（用于存在性检查）
+     *
+     * @return 记录数量
+     */
+    @Select("SELECT COUNT(*) FROM cyber_asset WHERE report_unit = #{reportUnit}")
+    Long countByReportUnit(@Param("reportUnit") String reportUnit);
+
 }

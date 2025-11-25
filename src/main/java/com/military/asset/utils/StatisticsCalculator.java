@@ -38,9 +38,8 @@ public final class StatisticsCalculator {
             return BigDecimal.valueOf(sorted.get(size / 2)).setScale(DEFAULT_SCALE, ROUNDING_MODE);
         }
         BigDecimal low = BigDecimal.valueOf(sorted.get(size / 2 - 1));
-        BigDecimal high = BigDecimal.valueOf(sorted.get(size / 2));
-        return low.add(high)
-                .divide(BigDecimal.valueOf(2), DEFAULT_SCALE, ROUNDING_MODE);
+        //BigDecimal high = BigDecimal.valueOf(sorted.get(size / 2));
+        return low;
     }
 
     /**
@@ -57,7 +56,7 @@ public final class StatisticsCalculator {
             BigDecimal diff = v.subtract(mean);
             sumSquares = sumSquares.add(diff.multiply(diff));
         }
-        return sumSquares.divide(BigDecimal.valueOf(values.size()), DEFAULT_SCALE, ROUNDING_MODE);
+        return sumSquares.divide(BigDecimal.valueOf(values.size()), DEFAULT_SCALE , ROUNDING_MODE);
     }
 
     private static BigDecimal mean(List<Integer> values, int scale) {
@@ -75,7 +74,7 @@ public final class StatisticsCalculator {
     }
 
     private static BigDecimal zero() {
-        return zero(DEFAULT_SCALE);
+        return zero(DEFAULT_SCALE );
     }
 
     private static BigDecimal zero(int scale) {

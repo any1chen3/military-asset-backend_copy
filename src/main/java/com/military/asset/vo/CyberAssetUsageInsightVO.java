@@ -2,6 +2,7 @@ package com.military.asset.vo;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -15,4 +16,8 @@ public class CyberAssetUsageInsightVO {
     private String province;
 
     private List<CyberAssetCategoryUsageVO> categories;
+    /**
+     * 资产老化率（超过八年的数量/总数量）。
+     */
+    private BigDecimal agingRate;
 }

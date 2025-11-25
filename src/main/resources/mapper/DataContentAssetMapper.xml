@@ -309,6 +309,23 @@
           AND application_field != ''
     </select>
 
+    <!-- 按上报单位统计应用领域数量 -->
+    <select id="countApplicationFieldByReportUnit" resultType="java.util.Map">
+        SELECT COALESCE(application_field, '其他') AS applicationField,
+               COUNT(*)                           AS count
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+        GROUP BY COALESCE(application_field, '其他')
+    </select>
+
+    <!-- 按上报单位统计更新周期数量 -->
+    <select id="countUpdateCycleByReportUnit" resultType="java.util.Map">
+        SELECT COALESCE(update_cycle, '其他') AS updateCycle,
+               COUNT(*)                       AS count
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+        GROUP BY COALESCE(update_cycle, '其他')
+    </select>
     <!-- 按省份统计“某开发工具”的拥有单位数（去重） -->
     <select id="countUnitsByProvinceAndDevTool" resultType="java.lang.Integer">
         SELECT COUNT(DISTINCT report_unit)

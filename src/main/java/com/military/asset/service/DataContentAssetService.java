@@ -2,10 +2,11 @@ package com.military.asset.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.military.asset.entity.DataContentAsset;
+import com.military.asset.vo.DataAssetReportUnitAnalysisVO;
 import com.military.asset.vo.ExcelErrorVO;
-import com.military.asset.vo.stat.ProvinceMetricVO;
 import com.military.asset.vo.excel.DataContentAssetExcelVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.military.asset.vo.stat.ProvinceMetricVO;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -92,6 +93,8 @@ public interface DataContentAssetService extends IService<DataContentAsset> {
                          String reportUnit, String province, String city,
                          String applicationField, String developmentTool, Integer quantityMin, Integer quantityMax,
                          String updateCycle, String updateMethod, String inventoryUnit);
+
+
 
     // ============================ 原有方法（增删改操作） ============================
 
@@ -193,6 +196,13 @@ public interface DataContentAssetService extends IService<DataContentAsset> {
      */
     List<ProvinceMetricVO> calculateAllProvinceDomesticRate();
 
+    /**
+     * 根据上报单位分析应用领域与更新周期分布，并给出职能分类、资源失衡与依赖度评估。
+     *
+     * @param reportUnit 上报单位
+     * @return 综合分析结果
+     */
+    DataAssetReportUnitAnalysisVO analyzeReportUnitDomainAndCycle(String reportUnit);
     // ============================ 新增方法（资产Map获取） ============================
 
     /**

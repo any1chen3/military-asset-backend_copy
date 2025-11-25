@@ -6,7 +6,6 @@ import com.military.asset.vo.stat.SoftwareAssetStatisticRow;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page; // 新增：导入Page类
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import com.military.asset.vo.SoftwareRecommendationUpdateItem;
 
 import java.util.List;
 import java.util.Map;
@@ -189,26 +188,11 @@ public interface SoftwareAssetMapper extends BaseMapper<SoftwareAsset> {
     List<Map<String, Object>> selectProvinceStatsByAssetCategory(@Param("assetCategory") String assetCategory);
 
     /**
-     * 批量更新升级建议字段，仅写入 recommendation 列，单次可处理3万条数据。
-     *
-     * @param items 资产ID与建议内容的对应列表
-     * @return 受影响的行数
-     */
-    int batchUpdateRecommendations(@Param("items") List<SoftwareRecommendationUpdateItem> items);
-
-    /**
-     * 按上报单位查询资产基础信息，避免依赖不存在的 recommendation 列。
+     * 按上报单位查询资产基础信息。
      *
      * @param reportUnit 上报单位名称
      * @return 该单位下的软件资产列表
      */
     List<SoftwareAsset> selectByReportUnitLight(@Param("reportUnit") String reportUnit);
 
-    /**
-     * 判断软件资产表中是否存在 recommendation 列，用于在缺少列时跳过批量更新以避免 SQL 错误。
-     *
-     * @return true 表示存在，false 表示不存在
-     */
-    @Select("SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'software_asset' AND column_name = 'recommendation'")
-    boolean hasRecommendationColumn();
 }

@@ -190,6 +190,16 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
             @Param("province") String province,
             @Param("field") String field);
 
+    /**
+     * 根据上报单位分组统计应用领域数量。
+     */
+    List<Map<String, Object>> countApplicationFieldByReportUnit(@Param("reportUnit") String reportUnit);
+
+    /**
+     * 根据上报单位分组统计更新周期数量。
+     */
+    List<Map<String, Object>> countUpdateCycleByReportUnit(@Param("reportUnit") String reportUnit);
+
     // 2. 按省份统计“某开发工具”的拥有单位数
     Integer countUnitsByProvinceAndDevTool(
             @Param("province") String province,
@@ -199,4 +209,25 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
     Integer countUnitsByProvinceAndUpdateMethod(
             @Param("province") String province,
             @Param("method") String method);
+
+// ==================== 新增方法 ====================
+
+    /**
+     * 根据上报单位查询所有相关记录（排除指定ID）
+     *
+     * @param unitName 单位名称
+     * @param excludeId 要排除的记录ID
+     * @return 相关记录列表（排除指定ID）
+     */
+    @Select("SELECT * FROM data_content_asset WHERE report_unit = #{unitName} AND id != #{excludeId} AND delete_flag = 0")
+    List<DataContentAsset> selectByReportUnitExcludeId(@Param("unitName") String unitName, @Param("excludeId") String excludeId);
+
+    /**
+     * 根据上报单位统计记录数量（用于存在性检查）
+     *
+     * @return 记录数量
+     */
+    @Select("SELECT COUNT(*) FROM data_content_asset WHERE report_unit = #{reportUnit}")
+    Long countByReportUnit(@Param("reportUnit") String reportUnit);
+
 }

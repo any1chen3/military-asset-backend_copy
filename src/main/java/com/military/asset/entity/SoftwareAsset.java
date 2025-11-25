@@ -178,11 +178,6 @@ public class SoftwareAsset implements HasReportUnitAndProvince { // 🆕 新增�
      */
     private String originalAccountRemark;
 
-    /**
-     * 升级建议（对应数据库`recommendation`字段，VARCHAR(150) DEFAULT NULL）
-     * 业务含义：根据软件升级必要性算法生成的文字化建议，便于在表单中直接展示给填报人
-     */
-    private String recommendation;
 
     /**
      * 数据入库时间（对应数据库`create_time`字段，DATETIME DEFAULT CURRENT_TIMESTAMP）
