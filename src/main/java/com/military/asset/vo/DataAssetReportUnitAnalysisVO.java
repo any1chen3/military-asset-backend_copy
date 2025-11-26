@@ -71,4 +71,14 @@ public class DataAssetReportUnitAnalysisVO {
      * 更新节奏倾向（高频实时型/低频管理型/静态档案型/混合型）。
      */
     private String updateRhythmTendency;
+
+    /**
+     * 上报单位所在省份。
+     */
+    private String province;
+
+    /**
+     * 该省份内各应用领域资产数量的统计结果。
+     */
+    private Map<String, FieldQuantityStatisticsVO> provinceFieldQuantityStatistics;
 }

@@ -2446,6 +2446,13 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
         vo.setDependencyLevel(dependencyLevel);
         vo.setUpdateRhythmTendency(updateRhythm);
 
+        String province = dataContentAssetMapper.getProvinceByReportUnit(reportUnit);
+        if (StringUtils.hasText(province)) {
+            vo.setProvince(province);
+            Map<String, List<Integer>> fieldQuantities = queryProvinceFieldQuantities(province);
+            vo.setProvinceFieldQuantityStatistics(DataAssetProvinceStatisticsUtils.calculateFieldQuantityStatistics(fieldQuantities));
+        }
+
         log.info("上报单位领域/周期分析完成 - 单位: {}, 耗时: {}ms", reportUnit, System.currentTimeMillis() - start);
         return vo;
     }
@@ -2498,6 +2505,17 @@ public class DataContentAssetServiceImpl extends ServiceImpl<DataContentAssetMap
     }
 
     // ============================ 私有工具方法 ============================
+
+    private Map<String, List<Integer>> queryProvinceFieldQuantities(String province) {
+        List<Map<String, Object>> rows = dataContentAssetMapper.selectApplicationFieldQuantitiesByProvince(province);
+        Map<String, List<Integer>> fieldQuantities = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            String field = (String) row.get("applicationField");
+            Integer quantity = row.get("actualQuantity") == null ? null : ((Number) row.get("actualQuantity")).intValue();
+            fieldQuantities.computeIfAbsent(field, k -> new ArrayList<>()).add(quantity);
+        }
+        return fieldQuantities;
+    }
 
     /**
      * 校验资产ID格式（数字+字母组合，移除长度限制）
