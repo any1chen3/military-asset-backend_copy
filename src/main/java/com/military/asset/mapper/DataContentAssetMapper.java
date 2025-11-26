@@ -200,6 +200,11 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
      */
     List<Map<String, Object>> countUpdateCycleByReportUnit(@Param("reportUnit") String reportUnit);
 
+    /**
+     * 查询指定省份下各应用领域的实有数量明细。
+     */
+    List<Map<String, Object>> selectApplicationFieldQuantitiesByProvince(@Param("province") String province);
+
     // 2. 按省份统计“某开发工具”的拥有单位数
     Integer countUnitsByProvinceAndDevTool(
             @Param("province") String province,
