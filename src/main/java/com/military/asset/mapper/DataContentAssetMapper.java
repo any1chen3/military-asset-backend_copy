@@ -143,6 +143,18 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
     Long selectDataContentCountByProvince(@Param("province") String province);
 
     /**
+     * 统计指定省份的数据内容资产上报单位数量。
+     */
+    @Select("SELECT COUNT(DISTINCT report_unit) FROM data_content_asset WHERE COALESCE(province, '未知') = #{province}")
+    Integer countReportUnitByProvince(@Param("province") String province);
+
+    /**
+     * 查询指定省份内各上报单位拥有的数据内容资产数量。
+     */
+    @Select("SELECT COUNT(*) FROM data_content_asset WHERE COALESCE(province, '未知') = #{province} GROUP BY report_unit")
+    List<Integer> countAssetByProvinceGroupByReportUnit(@Param("province") String province);
+
+    /**
      * 统计指定省份数据资产各分类数量
      * 注意：返回分类编码，由Service层转换为分类名称
      *

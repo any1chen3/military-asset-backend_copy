@@ -3,6 +3,8 @@ package com.military.asset.service.impl;
 import com.military.asset.entity.DimensionStats;
 import com.military.asset.entity.StatisticData;
 import com.military.asset.entity.StatisticResult;
+import com.military.asset.entity.ProvinceAssetStatisticData;
+import com.military.asset.entity.ProvinceAssetStatisticResult;
 import com.military.asset.entity.UnitTotal;
 import com.military.asset.mapper.DataContentAssetMapper;
 import com.military.asset.vo.CountVO;
@@ -14,8 +16,12 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import static com.military.asset.utils.StatisticsCalculator.median;
+import static com.military.asset.utils.StatisticsCalculator.variance;
 
 @Service
 public class DataContentAssetService {
@@ -48,6 +54,49 @@ public class DataContentAssetService {
 
         // 3. 第三步：统计该上报单位自身的各维度总量
         processUnitSelfTotal(reportUnit, data.getUnitTotal());
+
+        return result;
+    }
+
+    /**
+     * 返回目标上报单位所在省份拥有的数据内容资产数量统计（总量、均值、中位数、方差）。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 统计结果
+     */
+    public ProvinceAssetStatisticResult getProvinceAssetStatistic(String reportUnit) {
+        ProvinceAssetStatisticResult result = new ProvinceAssetStatisticResult();
+        ProvinceAssetStatisticData data = result.getData();
+
+        String province = assetMapper.getProvinceByReportUnit(reportUnit);
+        if (province == null || province.trim().isEmpty()) {
+            result.setCode(404);
+            result.setMessage("未找到[" + reportUnit + "]对应的省份信息");
+            return result;
+        }
+
+        province = province.trim();
+
+        Long total = assetMapper.selectDataContentCountByProvince(province);
+        Integer unitCount = assetMapper.countReportUnitByProvince(province);
+        List<Integer> assetCounts = assetMapper.countAssetByProvinceGroupByReportUnit(province);
+
+        data.setTotal(total == null ? 0L : total);
+
+        if (unitCount == null || unitCount == 0) {
+            data.setAverage(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            data.setMedian(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            data.setVariance(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            return result;
+        }
+
+        BigDecimal average = BigDecimal.valueOf(data.getTotal())
+                .divide(BigDecimal.valueOf(unitCount), 2, RoundingMode.HALF_UP);
+        data.setAverage(average);
+
+        List<Integer> sanitizedCounts = assetCounts == null ? Collections.emptyList() : assetCounts;
+        data.setMedian(median(sanitizedCounts));
+        data.setVariance(variance(sanitizedCounts));
 
         return result;
     }
