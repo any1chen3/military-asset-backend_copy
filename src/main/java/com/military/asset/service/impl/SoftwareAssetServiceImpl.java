@@ -174,37 +174,58 @@ public class SoftwareAssetServiceImpl extends ServiceImpl<SoftwareAssetMapper, S
             throw new IllegalArgumentException("上报单位不能为空");
         }
 
+        List<SoftwareAsset> allAssets = softwareAssetMapper.selectAllExistingAssets();
+        if (allAssets.isEmpty()) {
+            throw new IllegalArgumentException("暂无软件资产数据，无法计算对照得分");
+        }
+
+        Map<String, Long> globalDeploymentScopeStats = summarizeDeploymentScope(allAssets);
+        long globalQuantity = sumActualQuantity(allAssets);
+        long globalAssetRows = allAssets.size();
+        BigDecimal globalTotalScore = ReportUnitImportanceUtils.calculateImportanceScore(globalDeploymentScopeStats);
+        BigDecimal globalCompositeScore = ReportUnitImportanceUtils.calculateCompositeScore(globalTotalScore, globalQuantity, globalAssetRows);
+
         List<SoftwareAsset> assets = softwareAssetMapper.selectByReportUnitLight(reportUnit.trim());
 
         if (assets.isEmpty()) {
             throw new IllegalArgumentException("指定上报单位下未找到任何软件资产");
         }
 
+        Map<String, Long> deploymentScopeStats = summarizeDeploymentScope(assets);
+        long totalQuantity = sumActualQuantity(assets);
+        long assetRows = assets.size();
 
-        Map<String, Long> deploymentScopeStats = assets.stream()
+        BigDecimal totalScore = ReportUnitImportanceUtils.calculateImportanceScore(deploymentScopeStats);
+        BigDecimal importanceScore = ReportUnitImportanceUtils.calculateCompositeScore(totalScore, totalQuantity, assetRows);
+        String level = ReportUnitImportanceUtils.importanceLevelCompared(importanceScore, globalCompositeScore);
+        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, importanceScore, level, assetRows);
+
+        ReportUnitImportanceVO vo = new ReportUnitImportanceVO();
+        vo.setReportUnit(reportUnit);
+        vo.setAssetCount(assetRows);
+        vo.setImportanceScore(importanceScore);
+        vo.setGlobalImportanceScore(globalCompositeScore);
+        vo.setImportanceLevel(level);
+        vo.setAdvice(advice);
+        vo.setDeploymentScopeStats(deploymentScopeStats);
+
+        return Collections.singletonList(vo);
+    }
+
+    private Map<String, Long> summarizeDeploymentScope(List<SoftwareAsset> assets) {
+        return assets.stream()
                 .collect(Collectors.groupingBy(asset -> {
                     String scope = asset.getDeploymentScope();
                     return StringUtils.hasText(scope) ? scope : "未填部署范围";
                 }, LinkedHashMap::new, Collectors.summingLong(asset -> Optional
                         .ofNullable(asset.getActualQuantity())
                         .orElse(0))));
+    }
 
-        long totalQuantity = deploymentScopeStats.values().stream().mapToLong(Long::longValue).sum();
-
-        BigDecimal totalScore = ReportUnitImportanceUtils.calculateImportanceScore(deploymentScopeStats);
-        long effectiveScopeCount = deploymentScopeStats.values().stream().filter(count -> count > 0).count();
-        String level = ReportUnitImportanceUtils.importanceLevel(totalScore, (int) effectiveScopeCount);
-        String advice = ReportUnitImportanceUtils.buildAdvice(reportUnit, totalScore, level, totalQuantity);
-
-        ReportUnitImportanceVO vo = new ReportUnitImportanceVO();
-        vo.setReportUnit(reportUnit);
-        vo.setAssetCount(totalQuantity);
-        vo.setImportanceScore(totalScore);
-        vo.setImportanceLevel(level);
-        vo.setAdvice(advice);
-        vo.setDeploymentScopeStats(deploymentScopeStats);
-
-        return Collections.singletonList(vo);
+    private long sumActualQuantity(List<SoftwareAsset> assets) {
+        return assets.stream()
+                .mapToLong(asset -> Optional.ofNullable(asset.getActualQuantity()).orElse(0))
+                .sum();
     }
     // ============================ 原有方法实现（添加上报单位同步） ============================
 

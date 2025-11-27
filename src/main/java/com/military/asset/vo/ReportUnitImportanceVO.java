@@ -27,6 +27,11 @@ public class ReportUnitImportanceVO {
     private BigDecimal importanceScore;
 
     /**
+     * 全表对照综合得分（0~1）。
+     */
+    private BigDecimal globalImportanceScore;
+
+    /**
      * 重要性等级：高/中/低。
      */
     private String importanceLevel;
