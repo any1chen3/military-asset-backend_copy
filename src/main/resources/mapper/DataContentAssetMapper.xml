@@ -338,6 +338,43 @@
         WHERE report_unit = #{reportUnit}
         GROUP BY COALESCE(update_cycle, '其他')
     </select>
+    <!-- 按上报单位统计各应用领域的国产化记录数 -->
+    <select id="countUnitDomesticApplicationField" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            application_field AS dimension,
+            COUNT(*)           AS count
+        FROM data_content_asset
+        WHERE report_unit = #{reportUnit}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+          AND development_tool IN ('达梦','高斯','南大通用','人大金仓','神州通用')
+        GROUP BY application_field
+        ORDER BY application_field ASC
+    </select>
+    <!-- 按省份统计各应用领域的国产化记录数 -->
+    <select id="countProvinceDomesticApplicationField" resultType="com.military.asset.vo.CountVO">
+        SELECT
+            application_field AS dimension,
+            COUNT(*)           AS count
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+          AND development_tool IN ('达梦','高斯','南大通用','人大金仓','神州通用')
+        GROUP BY application_field
+        ORDER BY application_field ASC
+    </select>
+    <!-- 查询指定省份内某应用领域的各上报单位国产化记录数 -->
+    <select id="countProvinceUnitDomesticByField" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND application_field = #{field}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+          AND development_tool IN ('达梦','高斯','南大通用','人大金仓','神州通用')
+        GROUP BY report_unit
+    </select>
     <!-- 按省份统计“某开发工具”的拥有单位数（去重） -->
     <select id="countUnitsByProvinceAndDevTool" resultType="java.lang.Integer">
         SELECT COUNT(DISTINCT report_unit)
