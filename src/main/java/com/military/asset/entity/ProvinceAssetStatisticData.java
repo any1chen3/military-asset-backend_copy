@@ -3,6 +3,8 @@ package com.military.asset.entity;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 省份维度的数据内容资产统计数据。
@@ -10,15 +12,10 @@ import java.math.BigDecimal;
 @Data
 public class ProvinceAssetStatisticData {
 
-    /** 总量 */
-    private long total;
-
-    /** 平均值（总量/上报单位数量） */
-    private BigDecimal average = BigDecimal.ZERO;
-
-    /** 中位数 */
-    private BigDecimal median = BigDecimal.ZERO;
-
-    /** 方差 */
-    private BigDecimal variance = BigDecimal.ZERO;
+    /**
+     * 各应用领域的统计结果。
+     * key: 应用领域名称
+     * value: 该应用领域下的统计数据
+     */
+    private Map<String, ProvinceAssetStatisticItem> applicationFields = new HashMap<>();
 }
