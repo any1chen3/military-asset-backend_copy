@@ -213,6 +213,21 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
     List<Map<String, Object>> countUpdateCycleByReportUnit(@Param("reportUnit") String reportUnit);
 
     /**
+     * 统计上报单位在各应用领域下的国产化记录数。
+     */
+    List<CountVO> countUnitDomesticApplicationField(@Param("reportUnit") String reportUnit);
+
+    /**
+     * 按省份统计各应用领域的国产化记录数。
+     */
+    List<CountVO> countProvinceDomesticApplicationField(@Param("province") String province);
+
+    /**
+     * 查询指定省份内某应用领域的各上报单位国产化记录数。
+     */
+    List<Integer> countProvinceUnitDomesticByField(@Param("province") String province, @Param("field") String field);
+
+    /**
      * 查询指定省份下各应用领域的实有数量明细。
      */
     List<Map<String, Object>> selectApplicationFieldQuantitiesByProvince(@Param("province") String province);

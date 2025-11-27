@@ -5,6 +5,9 @@ import com.military.asset.entity.StatisticData;
 import com.military.asset.entity.StatisticResult;
 import com.military.asset.entity.ProvinceAssetStatisticData;
 import com.military.asset.entity.ProvinceAssetStatisticResult;
+import com.military.asset.entity.DomesticRateResult;
+import com.military.asset.entity.DomesticRateData;
+import com.military.asset.entity.DomesticCountStats;
 import com.military.asset.entity.UnitTotal;
 import com.military.asset.mapper.DataContentAssetMapper;
 import com.military.asset.vo.CountVO;
@@ -18,6 +21,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.military.asset.utils.StatisticsCalculator.median;
@@ -97,6 +101,54 @@ public class DataContentAssetService {
         List<Integer> sanitizedCounts = assetCounts == null ? Collections.emptyList() : assetCounts;
         data.setMedian(median(sanitizedCounts));
         data.setVariance(variance(sanitizedCounts));
+
+        return result;
+    }
+
+    /**
+     * 计算上报单位及其所在省份的各应用领域国产化率及相关统计。
+     *
+     * @param reportUnit 上报单位名称
+     * @return 国产化率结果
+     */
+    public DomesticRateResult getDomesticRate(String reportUnit) {
+        DomesticRateResult result = new DomesticRateResult();
+        DomesticRateData data = result.getData();
+
+        String province = assetMapper.getProvinceByReportUnit(reportUnit);
+        if (province == null || province.trim().isEmpty()) {
+            result.setCode(404);
+            result.setMessage("未找到[" + reportUnit + "]对应的省份信息");
+            return result;
+        }
+
+        Map<String, Integer> unitTotalMap = toCountMap(assetMapper.countUnitApplicationField(reportUnit));
+        Map<String, Integer> unitDomesticMap = toCountMap(assetMapper.countUnitDomesticApplicationField(reportUnit));
+        data.getUnitDomesticCount().putAll(unitDomesticMap);
+        unitTotalMap.forEach((field, total) -> {
+            Integer domestic = unitDomesticMap.getOrDefault(field, 0);
+            data.getUnitRate().put(field, calculateRatio(domestic, total));
+            data.getUnitDomesticCount().putIfAbsent(field, domestic);
+        });
+
+        Map<String, Integer> provinceTotalMap = toCountMap(assetMapper.countApplicationFieldByProvince(province));
+        Map<String, Integer> provinceDomesticMap = toCountMap(assetMapper.countProvinceDomesticApplicationField(province));
+        provinceTotalMap.forEach((field, total) -> {
+            int domestic = provinceDomesticMap.getOrDefault(field, 0);
+            data.getProvinceRate().put(field, calculateRatio(domestic, total));
+
+            DomesticCountStats stats = new DomesticCountStats();
+            stats.setTotal(domestic);
+
+            List<Integer> unitCounts = assetMapper.countProvinceUnitDomesticByField(province, field);
+            if (unitCounts != null && !unitCounts.isEmpty()) {
+                stats.setAverage(BigDecimal.valueOf(domestic)
+                        .divide(BigDecimal.valueOf(unitCounts.size()), 2, RoundingMode.HALF_UP));
+                stats.setMedian(median(unitCounts));
+                stats.setVariance(variance(unitCounts));
+            }
+            data.getProvinceDomesticCountStats().put(field, stats);
+        });
 
         return result;
     }
@@ -315,5 +367,23 @@ public class DataContentAssetService {
         // 4. 存入Map（所有子类别共享同一个方差，用维度类型标识key）
         varianceMap.put(dimensionType + "_variance", variance);
         return varianceMap;
+    }
+
+    private Map<String, Integer> toCountMap(List<CountVO> list) {
+        if (list == null) {
+            return Collections.emptyMap();
+        }
+        return list.stream().collect(Collectors.toMap(CountVO::getDimension, CountVO::getCount));
+    }
+
+    private BigDecimal calculateRatio(Number numerator, Number denominator) {
+        if (numerator == null || denominator == null || denominator.doubleValue() <= 0) {
+            return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
+        }
+        if (numerator.doubleValue() <= 0) {
+            return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
+        }
+        return BigDecimal.valueOf(numerator.doubleValue())
+                .divide(BigDecimal.valueOf(denominator.doubleValue()), 4, RoundingMode.HALF_UP);
     }
 }
