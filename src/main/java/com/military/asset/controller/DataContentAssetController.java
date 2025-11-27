@@ -2,6 +2,7 @@ package com.military.asset.controller;
 
 import com.military.asset.entity.ProvinceAssetStatisticResult;
 import com.military.asset.entity.StatisticResult;
+import com.military.asset.entity.DomesticRateResult;
 import com.military.asset.service.impl.DataContentAssetService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,5 +25,10 @@ public class DataContentAssetController {
     @GetMapping("/province-statistic")
     public ProvinceAssetStatisticResult getProvinceStatistic(@RequestParam String reportUnit) {
         return assetService.getProvinceAssetStatistic(reportUnit);
+    }
+
+    @GetMapping("/domestic-rate")
+    public DomesticRateResult getDomesticRate(@RequestParam String reportUnit) {
+        return assetService.getDomesticRate(reportUnit);
     }
 }
