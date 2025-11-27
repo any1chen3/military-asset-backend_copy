@@ -13,8 +13,6 @@ import java.util.Optional;
  */
 public final class ReportUnitImportanceUtils {
 
-    private static final BigDecimal HIGH_THRESHOLD = new BigDecimal("0.65");
-    private static final BigDecimal MID_THRESHOLD = new BigDecimal("0.3");
     private static final Map<String, BigDecimal> DEPLOYMENT_SCOPE_SCORE = Map.of(
             "全军", BigDecimal.ONE,
             "战区", new BigDecimal("0.8"),
@@ -22,7 +20,6 @@ public final class ReportUnitImportanceUtils {
             "军以下", new BigDecimal("0.4"),
             "军级单位内部", new BigDecimal("0.2")
     );
-    private static final BigDecimal MAX_SCOPE_SIZE = BigDecimal.valueOf(DEPLOYMENT_SCOPE_SCORE.size());
 
     private ReportUnitImportanceUtils() {
         throw new IllegalStateException("Utility class");
@@ -47,26 +44,50 @@ public final class ReportUnitImportanceUtils {
     }
 
     /**
-     * 根据得分判定重要性等级。
-     *
-     * @param score       总得分（范围 >=0）。
-     * @param scopeCount  参与计算的部署范围数量，用于归一化到 0~1。
+     * 综合得分计算公式：
+     * (资产总得分 × 60% + 实有数量 × 40%) / 资产行数。
      */
-    public static String importanceLevel(BigDecimal score, int scopeCount) {
-        if (score == null || scopeCount <= 0) {
+    public static BigDecimal calculateCompositeScore(BigDecimal totalScore, long totalQuantity, long assetRows) {
+        if (assetRows <= 0) {
+            return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal safeScore = Optional.ofNullable(totalScore).orElse(BigDecimal.ZERO);
+        BigDecimal weightedScore = safeScore.multiply(BigDecimal.valueOf(0.6));
+        BigDecimal weightedQuantity = BigDecimal.valueOf(totalQuantity).multiply(BigDecimal.valueOf(0.4));
+
+        return weightedScore
+                .add(weightedQuantity)
+                .divide(BigDecimal.valueOf(assetRows), 4, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 根据与全表基准得分的对比判定重要性等级。
+     *
+     * 规则：
+     * • 单位得分 > 全表得分 × 120% → 高；
+     * • 单位得分 < 全表得分 × 70% → 低；
+     * • 其他 → 中。
+     */
+    public static String importanceLevelCompared(BigDecimal unitScore, BigDecimal globalScore) {
+        if (unitScore == null || globalScore == null) {
             return "低";
         }
 
-        // 根据实际参与的部署范围数量进行 0~1 归一化，保证阈值变化能真实影响判级结果。
-        BigDecimal normalized = score.divide(BigDecimal.valueOf(scopeCount), 4, RoundingMode.HALF_UP);
-
-        if (normalized.compareTo(HIGH_THRESHOLD) >= 0) {
-            return "高";
-        }
-        if (normalized.compareTo(MID_THRESHOLD) >= 0) {
+        if (BigDecimal.ZERO.compareTo(globalScore) == 0) {
             return "中";
         }
-        return "低";
+
+        BigDecimal highThreshold = globalScore.multiply(new BigDecimal("1.2"));
+        BigDecimal lowThreshold = globalScore.multiply(new BigDecimal("0.7"));
+
+        if (unitScore.compareTo(highThreshold) > 0) {
+            return "高";
+        }
+        if (unitScore.compareTo(lowThreshold) < 0) {
+            return "低";
+        }
+        return "中";
     }
 
     /**
@@ -75,7 +96,7 @@ public final class ReportUnitImportanceUtils {
     public static String buildAdvice(String reportUnit, BigDecimal score, String level, long assetCount) {
         String unit = StringUtils.hasText(reportUnit) ? reportUnit : "该上报单位";
         BigDecimal safeScore = score == null ? BigDecimal.ZERO : score;
-        String base = String.format("%s的软件资产总得分为%.4f，重要性等级判定为%s。", unit, safeScore, level);
+        String base = String.format("%s的软件资产综合得分为%.4f，重要性等级判定为%s。", unit, safeScore, level);
         String detail;
         switch (level) {
             case "高":
@@ -87,7 +108,7 @@ public final class ReportUnitImportanceUtils {
             default:
                 detail = "该单位的软件资产得分偏低，可关注基础设施建设与关键应用补齐，循序推进能力提升。";
         }
-        String workload = String.format(" 本次计算覆盖%d项资产得分，结论适用于快速批量评估场景。", assetCount);
+        String workload = String.format(" 本次计算覆盖%d条资产记录，结论适用于快速批量评估场景。", assetCount);
         return base + detail + workload;
     }
 
