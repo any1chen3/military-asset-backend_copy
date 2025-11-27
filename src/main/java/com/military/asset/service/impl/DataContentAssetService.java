@@ -4,6 +4,7 @@ import com.military.asset.entity.DimensionStats;
 import com.military.asset.entity.StatisticData;
 import com.military.asset.entity.StatisticResult;
 import com.military.asset.entity.ProvinceAssetStatisticData;
+import com.military.asset.entity.ProvinceAssetStatisticItem;
 import com.military.asset.entity.ProvinceAssetStatisticResult;
 import com.military.asset.entity.DomesticRateResult;
 import com.military.asset.entity.DomesticRateData;
@@ -21,6 +22,8 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -81,26 +84,43 @@ public class DataContentAssetService {
 
         province = province.trim();
 
-        Long total = assetMapper.selectDataContentCountByProvince(province);
-        Integer unitCount = assetMapper.countReportUnitByProvince(province);
-        List<Integer> assetCounts = assetMapper.countAssetByProvinceGroupByReportUnit(province);
-
-        data.setTotal(total == null ? 0L : total);
-
-        if (unitCount == null || unitCount == 0) {
-            data.setAverage(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            data.setMedian(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            data.setVariance(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+        List<Map<String, Object>> applicationFieldCounts = assetMapper.selectApplicationFieldCountsByProvince(province);
+        if (applicationFieldCounts == null || applicationFieldCounts.isEmpty()) {
             return result;
         }
 
-        BigDecimal average = BigDecimal.valueOf(data.getTotal())
-                .divide(BigDecimal.valueOf(unitCount), 2, RoundingMode.HALF_UP);
-        data.setAverage(average);
+        Map<String, List<Integer>> groupedCounts = new LinkedHashMap<>();
+        for (Map<String, Object> record : applicationFieldCounts) {
+            Object fieldObj = record.get("applicationField");
+            Object countObj = record.get("recordCount");
+            if (fieldObj == null || countObj == null) {
+                continue;
+            }
+            String field = String.valueOf(fieldObj).trim();
+            if (field.isEmpty()) {
+                continue;
+            }
+            Integer count = countObj instanceof Number
+                    ? ((Number) countObj).intValue()
+                    : null;
+            if (count == null) {
+                continue;
+            }
+            groupedCounts.computeIfAbsent(field, f -> new ArrayList<>()).add(count);
+        }
 
-        List<Integer> sanitizedCounts = assetCounts == null ? Collections.emptyList() : assetCounts;
-        data.setMedian(median(sanitizedCounts));
-        data.setVariance(variance(sanitizedCounts));
+        groupedCounts.forEach((field, counts) -> {
+            ProvinceAssetStatisticItem item = new ProvinceAssetStatisticItem();
+            long total = counts.stream().mapToLong(Integer::longValue).sum();
+            item.setTotal(total);
+            if (!counts.isEmpty()) {
+                item.setAverage(BigDecimal.valueOf(total)
+                        .divide(BigDecimal.valueOf(counts.size()), 2, RoundingMode.HALF_UP));
+                item.setMedian(median(counts));
+                item.setVariance(variance(counts));
+            }
+            data.getApplicationFields().put(field, item);
+        });
 
         return result;
     }

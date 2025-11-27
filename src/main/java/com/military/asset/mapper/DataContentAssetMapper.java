@@ -232,6 +232,11 @@ public interface DataContentAssetMapper extends BaseMapper<DataContentAsset> {
      */
     List<Map<String, Object>> selectApplicationFieldQuantitiesByProvince(@Param("province") String province);
 
+    /**
+     * 查询指定省份下各应用领域的资产记录数（按上报单位分组统计）。
+     */
+    List<Map<String, Object>> selectApplicationFieldCountsByProvince(@Param("province") String province);
+
     // 2. 按省份统计“某开发工具”的拥有单位数
     Integer countUnitsByProvinceAndDevTool(
             @Param("province") String province,

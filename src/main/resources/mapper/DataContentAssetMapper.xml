@@ -246,6 +246,21 @@
           AND actual_quantity IS NOT NULL
     </select>
 
+    <!-- 查询省份下各应用领域的记录数，按上报单位分组 -->
+    <select id="selectApplicationFieldCountsByProvince" resultType="map">
+        SELECT
+            application_field AS applicationField,
+            report_unit       AS reportUnit,
+            COUNT(*)          AS recordCount
+        FROM data_content_asset
+        WHERE province = #{province}
+          AND application_field IS NOT NULL
+          AND application_field != ''
+          AND report_unit IS NOT NULL
+          AND report_unit != ''
+        GROUP BY application_field, report_unit
+    </select>
+
     <!-- 3. 按省份统计开发工具的记录数 -->
     <select id="countDevelopmentToolByProvince" resultType="com.military.asset.vo.CountVO">
         SELECT
