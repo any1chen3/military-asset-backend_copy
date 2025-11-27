@@ -1,5 +1,6 @@
 package com.military.asset.controller;
 
+import com.military.asset.entity.ProvinceAssetStatisticResult;
 import com.military.asset.entity.StatisticResult;
 import com.military.asset.service.impl.DataContentAssetService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,5 +19,10 @@ public class DataContentAssetController {
     @GetMapping("/statistic")
     public StatisticResult getStatistic(@RequestParam String reportUnit) {
         return assetService.getStatistic(reportUnit);
+    }
+
+    @GetMapping("/province-statistic")
+    public ProvinceAssetStatisticResult getProvinceStatistic(@RequestParam String reportUnit) {
+        return assetService.getProvinceAssetStatistic(reportUnit);
     }
 }
